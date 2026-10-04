@@ -1,0 +1,79 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Rising Golden Sun behind panel -->
+    <path
+        android:fillColor="#FFA000"
+        android:pathData="M54,26 C43.5,26 35,34.5 35,45 C35,48.5 36,51.8 37.8,54.6 L70.2,54.6 C72,51.8 73,48.5 73,45 C73,34.5 64.5,26 54,26 Z" />
+    <path
+        android:fillColor="#FFD54F"
+        android:pathData="M54,30 C46.3,30 40,36.3 40,44 C40,47.8 41.5,51.3 44,53.8 L64,53.8 C66.5,51.3 68,47.8 68,44 C68,36.3 61.7,30 54,30 Z" />
+
+    <!-- Radiant sun rays -->
+    <path
+        android:fillColor="#FFCA28"
+        android:pathData="M52,19 h4 v6 h-4 z" />
+    <path
+        android:fillColor="#FFCA28"
+        android:pathData="M35.6,26.4 l2.8,-2.8 l4.2,4.2 l-2.8,2.8 z" />
+    <path
+        android:fillColor="#FFCA28"
+        android:pathData="M65.4,30.6 l2.8,-2.8 l4.2,4.2 l-2.8,2.8 z" />
+
+    <!-- Photovoltaic Solar Panel Base (Perspective Trapeze) -->
+    <!-- Outer frame -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M31,78 L37,54 L71,54 L77,78 Z" />
+    <!-- Panel cells -->
+    <!-- Top-left cell -->
+    <path
+        android:fillColor="#0288D1"
+        android:pathData="M38,55.5 L43,55.5 L42,64.5 L36,64.5 Z" />
+    <!-- Top-mid cell -->
+    <path
+        android:fillColor="#039BE5"
+        android:pathData="M44.5,55.5 L53.5,55.5 L53.5,64.5 L43.5,64.5 Z" />
+    <!-- Top-right cell -->
+    <path
+        android:fillColor="#039BE5"
+        android:pathData="M54.5,55.5 L63.5,55.5 L64.5,64.5 L54.5,64.5 Z" />
+    <!-- Top-far-right cell -->
+    <path
+        android:fillColor="#0288D1"
+        android:pathData="M65,55.5 L70,55.5 L72,64.5 L66,64.5 Z" />
+
+    <!-- Bottom-left cell -->
+    <path
+        android:fillColor="#01579B"
+        android:pathData="M35,66 L41.5,66 L40.5,76.5 L32.5,76.5 Z" />
+    <!-- Bottom-mid cell -->
+    <path
+        android:fillColor="#0277BD"
+        android:pathData="M43,66 L53.5,66 L53.5,76.5 L42,76.5 Z" />
+    <!-- Bottom-mid-right cell -->
+    <path
+        android:fillColor="#0277BD"
+        android:pathData="M54.5,66 L65,66 L66,76.5 L54.5,76.5 Z" />
+    <!-- Bottom-right cell -->
+    <path
+        android:fillColor="#01579B"
+        android:pathData="M66.5,66 L73,66 L75.5,76.5 L67.5,76.5 Z" />
+
+    <!-- AI Neural Network Glow Pulse Line -->
+    <path
+        android:strokeColor="#76FF03"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M27,84 L41,80 L52,85 L67,79 L81,83" />
+    <!-- Node dots -->
+    <path android:fillColor="#FFFFFF" android:pathData="M25,84 A2,2 0 1,1 29,84 A2,2 0 1,1 25,84" />
+    <path android:fillColor="#76FF03" android:pathData="M39,80 A2,2 0 1,1 43,80 A2,2 0 1,1 39,80" />
+    <path android:fillColor="#FFFFFF" android:pathData="M50,85 A2,2 0 1,1 54,85 A2,2 0 1,1 50,85" />
+    <path android:fillColor="#76FF03" android:pathData="M65,79 A2,2 0 1,1 69,79 A2,2 0 1,1 65,79" />
+    <path android:fillColor="#FFFFFF" android:pathData="M79,83 A2,2 0 1,1 83,83 A2,2 0 1,1 79,83" />
+</vector>
