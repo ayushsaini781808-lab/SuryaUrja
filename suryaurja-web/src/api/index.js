@@ -84,17 +84,25 @@ export function getApiKey() {
 }
 
 const GEMINI_MODELS = {
-    'gemini-3.8-flash': 'gemini-3.8-flash',
     'gemini-3.5-flash': 'gemini-3.5-flash',
+    'gemini-3.8-flash': 'gemini-3.8-flash',
     'gemini-flash-latest': 'gemini-flash-latest',
+    'gemini-3.1-flash-lite': 'gemini-3.1-flash-lite',
 };
 
-export async function callGemini({ prompt, roleSystem, apiKey, modelId = 'gemini-3.8-flash', history = [] }) {
+export async function callGemini({ prompt, roleSystem, apiKey, modelId = 'gemini-3.5-flash', history = [] }) {
     const key = apiKey || getGeminiKey();
     if (!key) throw new Error('No Gemini API key configured. Add your key in the Settings tab.');
 
-    const modelName = GEMINI_MODELS[modelId] ?? 'gemini-3.8-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`;
+    // Build fallback chain of models to try in sequence if one is under high demand / 503
+    const preferredModel = GEMINI_MODELS[modelId] || modelId;
+    const candidates = Array.from(new Set([
+        preferredModel,
+        'gemini-3.5-flash',
+        'gemini-flash-latest',
+        'gemini-3.1-flash-lite',
+        'gemini-3.8-flash',
+    ]));
 
     // Build contents array
     const systemMsg = { role: 'user', parts: [{ text: roleSystem }] };
@@ -105,22 +113,38 @@ export async function callGemini({ prompt, roleSystem, apiKey, modelId = 'gemini
         { role: 'user', parts: [{ text: prompt }] },
     ];
 
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents,
-            generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
-        }),
-    });
+    let lastError = null;
+    for (const model of candidates) {
+        try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents,
+                    generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
+                }),
+            });
 
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error?.message ?? `Gemini HTTP ${res.status}`);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                const errMsg = err.error?.message ?? `Gemini HTTP ${res.status}`;
+                lastError = new Error(errMsg);
+                // If model is busy (503 / high demand) or not found, try next candidate
+                console.warn(`Model ${model} returned error: ${errMsg}. Trying fallback model...`);
+                continue;
+            }
+
+            const data = await res.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) return text;
+        } catch (err) {
+            lastError = err;
+            console.warn(`Model ${model} fetch failed: ${err.message}. Trying fallback...`);
+        }
     }
 
-    const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response generated.';
+    throw lastError || new Error('All Gemini model endpoints failed. Please check connection and try again.');
 }
 
 // ── localStorage persistence ───────────────────────────────────────────────────
