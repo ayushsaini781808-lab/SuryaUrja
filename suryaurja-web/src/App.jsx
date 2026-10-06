@@ -14,7 +14,7 @@ import AuthPage from './pages/AuthPage';
 import Toast from './components/Toast';
 
 export default function App() {
-  const [page, setPage] = useState('dashboard');
+  const [page, setPage] = useState('homesolar');
 
   const [selectedPlant, setSelectedPlant] = useState(PLANTS[0]);
   const [selectedPersona, setSelectedPersona] = useState('PLANT_OPERATOR');
@@ -50,6 +50,13 @@ export default function App() {
     setToast(msg);
     setTimeout(() => setToast(null), 3500);
   }, []);
+
+  const handleUpdateCapacity = useCallback((newKw) => {
+    const kw = Math.max(0.1, Number(newKw) || 200);
+    setSelectedPlant(prev => ({ ...prev, capacityKw: kw }));
+    setDaySummaries(buildDaySummaries(kw, cloudDelta, tempDelta));
+    showToast(`System capacity updated to ${kw} kW`);
+  }, [cloudDelta, tempDelta, showToast]);
 
   const handleSelectPlant = useCallback((plant) => {
     setSelectedPlant(plant);
@@ -107,7 +114,7 @@ export default function App() {
 
   const sharedProps = {
     page, setPage,
-    plants: PLANTS, selectedPlant, onSelectPlant: handleSelectPlant,
+    plants: PLANTS, selectedPlant, onSelectPlant: handleSelectPlant, onUpdateCapacity: handleUpdateCapacity,
     selectedPersona, onSelectPersona: setSelectedPersona,
     daySummaries, selectedDayIndex, onSelectDay: setSelectedDayIndex,
     activeHourPoint, onSelectHour: setSelectedHour,
@@ -140,6 +147,7 @@ export default function App() {
           selectedPlant={selectedPlant}
           plants={PLANTS}
           onSelectPlant={handleSelectPlant}
+          onUpdateCapacity={handleUpdateCapacity}
           overview={overview}
           isSynced={isSynced}
           locationName={locationName}

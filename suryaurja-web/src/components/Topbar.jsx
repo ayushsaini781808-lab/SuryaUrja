@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ChevronDown, MapPin, CheckCircle, Sun, Activity } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ChevronDown, MapPin, CheckCircle, Sun, Activity, Zap, Edit3 } from 'lucide-react';
 
 const PAGE_TITLES = {
     dashboard: 'Dashboard',
@@ -23,8 +23,21 @@ const PAGE_SUBTITLES = {
     auth:      'Firebase authentication & cloud sync',
 };
 
-export default function Topbar({ selectedPlant, plants, onSelectPlant, overview, isSynced, locationName, page }) {
+export default function Topbar({ selectedPlant, plants, onSelectPlant, onUpdateCapacity, overview, isSynced, locationName, page }) {
     const [showPlants, setShowPlants] = useState(false);
+    const [customKwInput, setCustomKwInput] = useState(String(selectedPlant.capacityKw));
+
+    useEffect(() => {
+        setCustomKwInput(String(selectedPlant.capacityKw));
+    }, [selectedPlant]);
+
+    const handleCapacityChange = (val) => {
+        setCustomKwInput(val);
+        const num = parseFloat(val);
+        if (!isNaN(num) && num > 0 && num <= 50000) {
+            onUpdateCapacity?.(num);
+        }
+    };
 
     return (
         <div className="topbar">
@@ -76,6 +89,29 @@ export default function Topbar({ selectedPlant, plants, onSelectPlant, overview,
                 <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 500 }}>MAE {overview.dayAheadMaeKw} kW</span>
             </div>
 
+            {/* Real kW Capacity Keyboard Input Badge */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                background: '#eaf6ee', border: '1px solid rgba(22,163,74,0.3)',
+                borderRadius: 8, padding: '3px 8px',
+            }} title="Directly edit Real Solar Plant Capacity (kW)">
+                <Zap size={12} color="#16a34a" />
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#15803d' }}>kW:</span>
+                <input
+                    type="number"
+                    min="0.1"
+                    max="50000"
+                    step="0.5"
+                    value={customKwInput}
+                    onChange={(e) => handleCapacityChange(e.target.value)}
+                    style={{
+                        width: 55, border: 'none', background: 'transparent',
+                        fontWeight: 900, fontSize: 12, color: '#0f5132',
+                        outline: 'none', textAlign: 'center',
+                    }}
+                />
+            </div>
+
             {/* Plant selector */}
             <div style={{ position: 'relative' }}>
                 <button
@@ -101,16 +137,64 @@ export default function Topbar({ selectedPlant, plants, onSelectPlant, overview,
                     <div style={{
                         position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 200,
                         background: '#fff', border: '1px solid var(--border)',
-                        borderRadius: 14, overflow: 'hidden', minWidth: 280,
+                        borderRadius: 14, overflow: 'hidden', minWidth: 300,
                         boxShadow: 'var(--shadow-xl)',
                     }}>
+                        {/* Custom kW Section */}
+                        <div style={{ padding: '12px 16px', background: '#f8fbf9', borderBottom: '1px solid var(--border)' }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <Zap size={11} /> Real Plant Capacity (Keyboard Input)
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                <input
+                                    type="number"
+                                    min="0.1"
+                                    max="50000"
+                                    step="0.5"
+                                    value={customKwInput}
+                                    onChange={(e) => handleCapacityChange(e.target.value)}
+                                    placeholder="e.g. 200"
+                                    style={{
+                                        flex: 1, padding: '6px 10px', borderRadius: 8,
+                                        border: '1px solid rgba(22,163,74,0.4)', background: '#fff',
+                                        fontSize: 14, fontWeight: 800, color: '#0f5132', outline: 'none',
+                                    }}
+                                />
+                                <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>kW</span>
+                            </div>
+
+                            {/* Preset Buttons */}
+                            <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
+                                {[50, 100, 200, 500, 1000].map(kw => (
+                                    <button
+                                        key={kw}
+                                        type="button"
+                                        onClick={() => handleCapacityChange(String(kw))}
+                                        style={{
+                                            background: Number(customKwInput) === kw ? '#dcfce7' : '#fff',
+                                            border: `1px solid ${Number(customKwInput) === kw ? '#16a34a' : '#d4ebd9'}`,
+                                            color: Number(customKwInput) === kw ? '#15803d' : '#537359',
+                                            padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                                        }}
+                                    >
+                                        {kw} kW
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Preset Plants List */}
                         <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            Select Solar Plant
+                            Select Preset Solar Plant
                         </div>
                         {plants.map(p => (
                             <div
                                 key={p.id}
-                                onClick={() => { onSelectPlant(p); setShowPlants(false); }}
+                                onClick={() => {
+                                    onSelectPlant(p);
+                                    setCustomKwInput(String(p.capacityKw));
+                                    setShowPlants(false);
+                                }}
                                 style={{
                                     padding: '11px 16px', cursor: 'pointer', transition: 'background 0.15s',
                                     background: p.id === selectedPlant.id ? 'rgba(15,37,87,0.05)' : 'transparent',

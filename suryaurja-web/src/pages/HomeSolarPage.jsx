@@ -1,14 +1,16 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
     MapPin, RefreshCw, Sun, Zap, ThermometerSun, Cloud, Wind, Droplets,
     Home, IndianRupee, Leaf, Search, Globe, Calendar, TrendingUp, X,
-    Navigation, Info, ChevronDown, ChevronUp,
+    Navigation, Info, ChevronDown, ChevronUp, Shield, Award, Percent,
+    ArrowRight, CheckCircle2, RotateCcw, CloudSun, Settings, Layers
 } from 'lucide-react';
 import {
     AreaChart, Area, BarChart, Bar, LineChart, Line,
     XAxis, YAxis, CartesianGrid, Tooltip,
     ResponsiveContainer, ReferenceLine, Legend,
 } from 'recharts';
+import './SolarCalculator.css';
 
 // ── WMO weather code → label + icon ──────────────────────────────────────────
 function wmoToCondition(code) {
@@ -63,11 +65,50 @@ const PANEL_TYPES = [
     },
 ];
 
-// ── PV power from GHI + temp ─────────────────────────────────────────────────
-function calcHourlyKw(ghi, temp, capacityKw, operatingEffPct = 75, tempCoeff = 0.0035) {
-    if (ghi <= 0) return 0;
-    const derate = (operatingEffPct / 100) * (1 - Math.max(0, (temp - 25) * tempCoeff));
-    return Math.round((ghi / 1000) * capacityKw * derate * 10) / 10;
+// ── INDIAN STATES SOLAR & TARIFF DATA ────────────────────────────────────────
+const STATE_DATA = {
+    1:  { name: 'Jammu & Kashmir',            gen: 3.60, tariff: 2.27, sunHrs: 4.5, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+    2:  { name: 'Himachal Pradesh',           gen: 3.76, tariff: 5.00, sunHrs: 4.7, nonSub: [43000, 42000, 38000, 45000], sub: [53000, 52000, 48000, 55000], govSub: [33000, 33000, 19800], commercial: 0 },
+    3:  { name: 'Punjab',                     gen: 4.16, tariff: 5.00, sunHrs: 5.2, nonSub: [46300, 38000, 31000, 38000], sub: [56300, 48000, 41000, 48000], govSub: [30000, 30000, 18000], commercial: 0 },
+    4:  { name: 'Chandigarh',                 gen: 4.24, tariff: 5.00, sunHrs: 5.3, nonSub: [46300, 38000, 31000, 38000], sub: [56300, 48000, 41000, 48000], govSub: [30000, 30000, 18000], commercial: 0 },
+    5:  { name: 'Uttarakhand',                gen: 3.84, tariff: 5.00, sunHrs: 4.8, nonSub: [47000, 47000, 36500, 43500], sub: [57000, 57000, 46500, 53500], govSub: [30000, 30000, 18000], commercial: 0 },
+    6:  { name: 'Haryana',                    gen: 4.32, tariff: 5.50, sunHrs: 5.4, nonSub: [43000, 42000, 38000, 45000], sub: [53000, 52000, 48000, 55000], govSub: [30000, 30000, 18000], commercial: 0 },
+    7:  { name: 'Delhi (NCT)',                gen: 4.40, tariff: 4.50, sunHrs: 5.5, nonSub: [47000, 47000, 36500, 43500], sub: [57000, 57000, 46500, 53500], govSub: [30000, 30000, 18000], commercial: 30000 },
+    8:  { name: 'Rajasthan',                  gen: 4.64, tariff: 6.00, sunHrs: 5.8, nonSub: [60000, 45500, 34000, 41000], sub: [70000, 55500, 44000, 51000], govSub: [30000, 30000, 18000], commercial: 0 },
+    9:  { name: 'Uttar Pradesh',              gen: 4.24, tariff: 5.50, sunHrs: 5.3, nonSub: [43000, 42000, 38000, 45000], sub: [53000, 52000, 48000, 55000], govSub: [30000, 30000, 18000], commercial: 30000 },
+    10: { name: 'Bihar',                      gen: 4.16, tariff: 6.50, sunHrs: 5.2, nonSub: [43000, 46500, 34000, 41000], sub: [53000, 56500, 44000, 51000], govSub: [30000, 30000, 18000], commercial: 0 },
+    11: { name: 'Sikkim',                     gen: 3.36, tariff: 4.50, sunHrs: 4.2, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [30000, 30000, 18000], commercial: 0 },
+    12: { name: 'Arunachal Pradesh',          gen: 3.52, tariff: 4.00, sunHrs: 4.4, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+    13: { name: 'Nagaland',                   gen: 3.44, tariff: 5.00, sunHrs: 4.3, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+    14: { name: 'Manipur',                    gen: 3.52, tariff: 5.00, sunHrs: 4.4, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+    15: { name: 'Mizoram',                    gen: 3.44, tariff: 5.00, sunHrs: 4.3, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+    16: { name: 'Tripura',                    gen: 3.52, tariff: 5.00, sunHrs: 4.4, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+    17: { name: 'Meghalaya',                  gen: 3.36, tariff: 5.00, sunHrs: 4.2, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+    18: { name: 'Assam',                      gen: 3.60, tariff: 5.00, sunHrs: 4.5, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+    19: { name: 'West Bengal',                gen: 3.92, tariff: 5.75, sunHrs: 4.9, nonSub: [47000, 40000, 34000, 41000], sub: [57000, 50000, 44000, 51000], govSub: [30000, 30000, 18000], commercial: 0 },
+    20: { name: 'Jharkhand',                  gen: 4.00, tariff: 6.50, sunHrs: 5.0, nonSub: [49000, 50000, 34000, 41000], sub: [59000, 60000, 44000, 51000], govSub: [30000, 30000, 18000], commercial: 0 },
+    21: { name: 'Odisha',                     gen: 4.16, tariff: 5.50, sunHrs: 5.2, nonSub: [47000, 40000, 34000, 41000], sub: [57000, 50000, 44000, 51000], govSub: [30000, 30000, 18000], commercial: 0 },
+    22: { name: 'Chhattisgarh',               gen: 4.32, tariff: 6.00, sunHrs: 5.4, nonSub: [45000, 45000, 34000, 41000], sub: [55000, 55000, 44000, 51000], govSub: [30000, 30000, 18000], commercial: 0 },
+    23: { name: 'Madhya Pradesh',             gen: 4.48, tariff: 6.00, sunHrs: 5.6, nonSub: [45000, 45000, 34000, 41000], sub: [55000, 55000, 44000, 51000], govSub: [30000, 30000, 18000], commercial: 0 },
+    24: { name: 'Gujarat',                    gen: 4.64, tariff: 5.00, sunHrs: 5.8, nonSub: [37500, 35000, 31000, 38000], sub: [47500, 45000, 41000, 48000], govSub: [30000, 30000, 18000], commercial: 0 },
+    27: { name: 'Maharashtra',                gen: 4.40, tariff: 6.00, sunHrs: 5.5, nonSub: [46000, 45000, 37000, 44000], sub: [56000, 55000, 47000, 54000], govSub: [30000, 30000, 18000], commercial: 0 },
+    28: { name: 'Andhra Pradesh',             gen: 4.56, tariff: 6.00, sunHrs: 5.7, nonSub: [50000, 50000, 40000, 47000], sub: [60000, 60000, 50000, 57000], govSub: [30000, 30000, 18000], commercial: 0 },
+    29: { name: 'Karnataka',                  gen: 4.64, tariff: 6.00, sunHrs: 5.8, nonSub: [50000, 50000, 40000, 47000], sub: [60000, 60000, 50000, 57000], govSub: [30000, 30000, 18000], commercial: 0 },
+    30: { name: 'Goa',                        gen: 4.40, tariff: 4.05, sunHrs: 5.5, nonSub: [46000, 45000, 37000, 44000], sub: [56000, 55000, 47000, 54000], govSub: [30000, 30000, 18000], commercial: 0 },
+    31: { name: 'Lakshadweep',                gen: 4.00, tariff: 5.50, sunHrs: 5.0, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+    32: { name: 'Kerala',                     gen: 4.16, tariff: 5.50, sunHrs: 5.2, nonSub: [50000, 50000, 40000, 47000], sub: [60000, 60000, 50000, 57000], govSub: [30000, 30000, 18000], commercial: 0 },
+    33: { name: 'Tamil Nadu',                 gen: 4.48, tariff: 5.50, sunHrs: 5.6, nonSub: [50000, 50000, 40000, 47000], sub: [60000, 60000, 50000, 57000], govSub: [30000, 30000, 18000], commercial: 0 },
+    34: { name: 'Puducherry',                 gen: 4.40, tariff: 5.50, sunHrs: 5.5, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [30000, 30000, 18000], commercial: 0 },
+    35: { name: 'Andaman & Nicobar',          gen: 3.84, tariff: 6.00, sunHrs: 4.8, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+    36: { name: 'Telangana',                  gen: 4.56, tariff: 6.00, sunHrs: 5.7, nonSub: [50000, 50000, 40000, 47000], sub: [60000, 60000, 50000, 57000], govSub: [30000, 30000, 18000], commercial: 0 },
+    37: { name: 'Ladakh',                     gen: 4.48, tariff: 6.00, sunHrs: 5.6, nonSub: [65000, 60000, 48000, 55000], sub: [75000, 70000, 58000, 65000], govSub: [33000, 33000, 19800], commercial: 0 },
+};
+
+function formatRupees(n) {
+    if (!n || isNaN(n)) return '0';
+    if (n >= 10000000) return (n / 10000000).toFixed(2) + ' Cr';
+    if (n >= 100000) return (n / 100000).toFixed(2) + ' L';
+    return Math.round(n).toLocaleString('en-IN');
 }
 
 // ── Custom Tooltip ────────────────────────────────────────────────────────────
@@ -78,7 +119,7 @@ function CustomTooltip({ active, payload, label }) {
             background: 'rgba(8,14,28,0.97)', border: '1px solid rgba(245,158,11,0.3)',
             borderRadius: 10, padding: '10px 14px', fontSize: 11, minWidth: 160,
         }}>
-            <div style={{ fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}>{label}</div>
+            <div style={{ fontWeight: 700, color: '#f59e0b', marginBottom: 6 }}>{label}</div>
             {payload.map(p => (
                 <div key={p.name} style={{ color: p.color, display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 2 }}>
                     <span>{p.name}</span><span style={{ fontWeight: 700 }}>{p.value}</span>
@@ -88,97 +129,29 @@ function CustomTooltip({ active, payload, label }) {
     );
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
-function StatCard({ icon: Icon, iconColor, label, value, unit, sub, gradient }) {
-    return (
-        <div style={{
-            background: gradient || 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 14, padding: '16px 18px',
-            display: 'flex', flexDirection: 'column', gap: 6,
-        }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                <Icon size={15} color={iconColor} />
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</span>
-            </div>
-            <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1, color: iconColor }}>
-                {value}<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', marginLeft: 4 }}>{unit}</span>
-            </div>
-            {sub && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{sub}</div>}
-        </div>
-    );
-}
-
-// ── Weather badge ─────────────────────────────────────────────────────────────
-function WeatherBadge({ icon: Icon, label, value, color }) {
-    return (
-        <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-            background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '10px 8px',
-            border: '1px solid rgba(255,255,255,0.06)', flex: 1, minWidth: 60,
-        }}>
-            <Icon size={14} color={color} />
-            <span style={{ fontSize: 14, fontWeight: 700, color }}>{value}</span>
-            <span style={{ fontSize: 9, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
-        </div>
-    );
-}
-
-// ── 7-Day mini forecast card ───────────────────────────────────────────────────
-function DayCard({ day, isToday, capacityKw, tariff, onClick, isSelected }) {
-    const cond = wmoToCondition(day.weathercode);
-    const kwh = Math.round(day.totalKwh * 10) / 10;
-    return (
-        <div
-            onClick={onClick}
-            style={{
-                background: isSelected
-                    ? 'linear-gradient(135deg, rgba(245,158,11,0.18), rgba(245,158,11,0.06))'
-                    : 'rgba(255,255,255,0.03)',
-                border: `1px solid ${isSelected ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.07)'}`,
-                borderRadius: 12, padding: '12px 10px',
-                cursor: 'pointer', transition: 'all 0.2s',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                minWidth: 80,
-            }}
-        >
-            <div style={{ fontSize: 10, color: isToday ? 'var(--amber)' : 'var(--text-muted)', fontWeight: isToday ? 700 : 400 }}>
-                {isToday ? 'Today' : day.dayLabel}
-            </div>
-            <div style={{ fontSize: 22 }}>{cond.icon}</div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--amber)' }}>{kwh}<span style={{ fontSize: 9, marginLeft: 2, color: 'var(--text-muted)' }}>kWh</span></div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{day.maxTemp}° / {day.minTemp}°</div>
-        </div>
-    );
-}
-
-// ── Location search result item ────────────────────────────────────────────────
-function SearchResult({ result, onSelect }) {
-    return (
-        <div
-            onClick={() => onSelect(result)}
-            style={{
-                padding: '10px 14px', cursor: 'pointer',
-                borderBottom: '1px solid rgba(255,255,255,0.05)',
-                transition: 'background 0.15s',
-                display: 'flex', flexDirection: 'column', gap: 2,
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(245,158,11,0.08)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-        >
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                {result.name}
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                {[result.admin1, result.country].filter(Boolean).join(', ')} · {result.latitude.toFixed(2)}°N, {result.longitude.toFixed(2)}°E
-            </div>
-        </div>
-    );
-}
-
-// ── Main Component ─────────────────────────────────────────────────────────────
 export default function HomeSolarPage({ showToast }) {
-    // Location state
+    // ── STEP 1: Calculation Method ─────────────────────────────────
+    const [calcMethod, setCalcMethod] = useState('bill'); // 'bill' | 'units' | 'area'
+    const [billAmount, setBillAmount] = useState(5000);
+    const [unitsAmount, setUnitsAmount] = useState(600);
+    const [roofArea, setRoofArea] = useState(600);
+    const [areaUnit, setAreaUnit] = useState('sqft'); // 'sqft' | 'sqm'
+    const [roofUsagePct, setRoofUsagePct] = useState(70);
+
+    // ── STEP 2: Location & Customer ────────────────────────────────
+    const [selectedStateId, setSelectedStateId] = useState(7); // Default: Delhi
+    const [customerType, setCustomerType] = useState('2'); // '2' = Residential, '1' = Commercial, '3' = Industrial
+    const [subsidyType, setSubsidyType] = useState('1'); // '1' = With Subsidy (DCR)
+
+    // ── STEP 3: Electricity Tariff ─────────────────────────────────
+    const [tariff, setTariff] = useState(STATE_DATA[7].tariff);
+
+    // Results & View state
+    const [hasCalculated, setHasCalculated] = useState(true);
+    const [activeTab, setActiveTab] = useState('calculator'); // 'calculator' | 'live_weather'
+    const resultsRef = useRef(null);
+
+    // ── PREVIOUS LIVE WEATHER & SIMULATOR FEATURE STATES ────────────
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -186,83 +159,115 @@ export default function HomeSolarPage({ showToast }) {
     const [selectedLocation, setSelectedLocation] = useState({ name: 'Delhi, India', lat: 28.6139, lon: 77.2090 });
     const [isGpsActive, setIsGpsActive] = useState(false);
 
-    // System config
-    const [capacityKw, setCapacityKw] = useState(2);
-    const [capacityInput, setCapacityInput] = useState('2');
-    const [tariff, setTariff] = useState(8);
-    const [panelTypeId, setPanelTypeId] = useState('mono_perc');
-    const [operatingEffPct, setOperatingEffPct] = useState(75); // Operates at ~75% (70–80% typical range)
+    // Custom Capacity Input via Keyboard (0.5 to 100 kW)
+    const [capacityKw, setCapacityKw] = useState(3.5);
+    const [capacityInput, setCapacityInput] = useState('3.5');
 
-    // Data state
+    const [panelTypeId, setPanelTypeId] = useState('mono_perc');
+    const [operatingEffPct, setOperatingEffPct] = useState(76);
+
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [todayResult, setTodayResult] = useState(null);
     const [weekData, setWeekData] = useState(null);
     const [selectedDayIdx, setSelectedDayIdx] = useState(0);
-    const [autoRefresh, setAutoRefresh] = useState(false);
     const [lastFetchTime, setLastFetchTime] = useState(null);
 
-    // UI state
-    const [showDetails, setShowDetails] = useState(false);
     const searchRef = useRef(null);
-    const autoRefreshTimer = useRef(null);
 
-    // ── Location search via Open-Meteo Geocoding API ──────────────────────────
-    const searchLocations = useCallback(async (query) => {
-        if (!query || query.length < 2) { setSearchResults([]); return; }
-        setIsSearching(true);
-        try {
-            const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=8&language=en&format=json`;
-            const res = await fetch(url);
-            if (!res.ok) throw new Error('Search failed');
-            const data = await res.json();
-            setSearchResults(data.results ?? []);
-        } catch {
-            setSearchResults([]);
-        } finally {
-            setIsSearching(false);
+    // Sync tariff when state changes
+    const handleStateChange = (stateId) => {
+        const id = parseInt(stateId);
+        setSelectedStateId(id);
+        if (STATE_DATA[id]) {
+            setTariff(STATE_DATA[id].tariff);
         }
-    }, []);
-
-    // Debounce search
-    const searchDebounce = useRef(null);
-    const handleSearchChange = (val) => {
-        setSearchQuery(val);
-        setShowSearchDrop(true);
-        clearTimeout(searchDebounce.current);
-        searchDebounce.current = setTimeout(() => searchLocations(val), 350);
     };
 
-    const handleSelectSearchResult = (result) => {
-        const loc = { name: `${result.name}${result.admin1 ? ', ' + result.admin1 : ''}${result.country ? ', ' + result.country : ''}`, lat: result.latitude, lon: result.longitude };
-        setSelectedLocation(loc);
-        setSearchQuery('');
-        setSearchResults([]);
-        setShowSearchDrop(false);
-        setIsGpsActive(false);
-        fetchAll(loc.lat, loc.lon, loc.name);
-    };
+    // ── INSTANT SOLAR CALCULATOR ENGINE ───────────────────────────
+    const calculatorResults = useMemo(() => {
+        const sd = STATE_DATA[selectedStateId] || STATE_DATA[7];
+        const stateGen = sd.gen;
 
-    // ── GPS ───────────────────────────────────────────────────────────────────
-    const handleGps = () => {
-        if (!navigator.geolocation) { showToast?.('GPS not supported in this browser'); return; }
-        setLoading(true);
-        navigator.geolocation.getCurrentPosition(
-            pos => {
-                const loc = { name: 'My GPS Location', lat: pos.coords.latitude, lon: pos.coords.longitude };
-                setSelectedLocation(loc);
-                setIsGpsActive(true);
-                fetchAll(loc.lat, loc.lon, loc.name);
-            },
-            () => {
-                setLoading(false);
-                showToast?.('Location access denied. Please allow GPS or search a city.');
-            },
-            { timeout: 10000, maximumAge: 60000 }
-        );
-    };
+        let plantKW = 0;
+        if (calcMethod === 'bill') {
+            const safeBill = Math.max(100, Number(billAmount) || 100);
+            const safeTariff = Math.max(1, Number(tariff) || 5);
+            const monthlyUnits = safeBill / safeTariff;
+            plantKW = (monthlyUnits / 30) / stateGen;
+        } else if (calcMethod === 'units') {
+            const safeUnits = Math.max(10, Number(unitsAmount) || 10);
+            plantKW = (safeUnits / 30) / stateGen;
+        } else if (calcMethod === 'area') {
+            const rawArea = Math.max(50, Number(roofArea) || 50);
+            const sqft = areaUnit === 'sqm' ? rawArea * 10.764 : rawArea;
+            const usableArea = sqft * (Number(roofUsagePct) / 100);
+            plantKW = usableArea / 70;
+        }
 
-    // ── Fetch all data (today + 7-day) ────────────────────────────────────────
+        plantKW = Math.max(0.5, Math.round(plantKW * 10) / 10);
+
+        const dailyGen = plantKW * stateGen;
+        const monthlyGen = dailyGen * 30;
+        const annualGen = dailyGen * 365 * 0.98;
+        const lifetimeGen = annualGen * 30 * 0.93;
+
+        const effectiveTariff = Math.max(1, Number(tariff) || 5);
+        const monthlySavings = monthlyGen * effectiveTariff;
+        const annualSavings = annualGen * effectiveTariff;
+        const lifetimeSavings = annualSavings * 30;
+
+        const isResidential = customerType === '2';
+        const isEligibleSubsidy = isResidential && subsidyType === '1';
+
+        const priceBracketIdx = plantKW < 3.5 ? 0 : plantKW < 5.3 ? 1 : plantKW < 8.1 ? 2 : 3;
+        let pricePerKW = isEligibleSubsidy ? sd.sub[priceBracketIdx] : sd.nonSub[priceBracketIdx];
+        if (!isResidential && sd.commercial > 0) {
+            pricePerKW = sd.commercial;
+        }
+
+        const totalProjectCost = Math.round(plantKW * pricePerKW);
+
+        let govtSubsidy = 0;
+        if (isEligibleSubsidy) {
+            const [r1, r2, r3] = sd.govSub;
+            govtSubsidy += Math.min(plantKW, 1) * r1;
+            if (plantKW > 1) govtSubsidy += Math.min(plantKW - 1, 1) * r2;
+            if (plantKW > 2) govtSubsidy += Math.min(plantKW - 2, 1) * r3;
+        }
+        govtSubsidy = Math.round(govtSubsidy);
+        const netInvestment = Math.max(0, totalProjectCost - govtSubsidy);
+
+        const paybackYears = annualSavings > 0 ? (netInvestment / annualSavings).toFixed(1) : '4.2';
+        const roiPercent = netInvestment > 0 ? ((annualSavings / netInvestment) * 100).toFixed(1) : '24.5';
+
+        const roofAreaNeeded = Math.round(plantKW * 70);
+        const co2AvoidedTons = Math.round((lifetimeGen * 0.82) / 1000);
+        const treesEquivalent = Math.round((lifetimeGen * 0.82) / 625);
+
+        return {
+            stateName: sd.name,
+            sunHrs: sd.sunHrs,
+            plantKW,
+            dailyGen: dailyGen.toFixed(1),
+            monthlyGen: Math.round(monthlyGen),
+            annualGen: Math.round(annualGen),
+            monthlySavings: Math.round(monthlySavings),
+            annualSavings: Math.round(annualSavings),
+            lifetimeSavings: Math.round(lifetimeSavings),
+            totalProjectCost,
+            govtSubsidy,
+            netInvestment,
+            paybackYears,
+            roiPercent,
+            roofAreaNeeded,
+            co2AvoidedTons,
+            treesEquivalent,
+            isEligibleSubsidy,
+        };
+    }, [calcMethod, billAmount, unitsAmount, roofArea, areaUnit, roofUsagePct, selectedStateId, customerType, subsidyType, tariff]);
+
+    // ── LIVE OPEN-METEO WEATHER FETCH ENGINE (PREVIOUS FEATURE) ────
     const fetchAll = useCallback(async (lat, lon, cityName, kw = capacityKw, opEff = operatingEffPct, pTypeId = panelTypeId) => {
         setLoading(true); setError(null);
         try {
@@ -279,11 +284,10 @@ export default function HomeSolarPage({ showToast }) {
 
             const h = data.hourly;
             const d = data.daily;
-            const opEffFactor = opEff / 100; // Operates at ~75% (70-80% typical range)
+            const opEffFactor = opEff / 100;
             const activePanel = PANEL_TYPES.find(p => p.id === pTypeId) ?? PANEL_TYPES[0];
             const tempCoeff = activePanel.tempCoeff ?? 0.0035;
 
-            // ── Build 7 days ──────────────────────────────────────────────────
             const allWeek = d.time.map((dateStr, di) => {
                 const dayStart = di * 24;
                 const dayHours = Array.from({ length: 24 }, (_, hi) => {
@@ -309,7 +313,6 @@ export default function HomeSolarPage({ showToast }) {
                 const savings = Math.round(totalKwh * tariff);
                 const co2Saved = Math.round(totalKwh * 0.82 * 10) / 10;
 
-                // Parse date for label
                 const dt = new Date(dateStr);
                 const dayLabel = dt.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
 
@@ -320,7 +323,6 @@ export default function HomeSolarPage({ showToast }) {
                 };
             });
 
-            // ── Today specifics ────────────────────────────────────────────────
             const today = allWeek[0];
             const sunrise = d.sunrise?.[0]?.slice(11, 16) ?? '06:00';
             const sunset = d.sunset?.[0]?.slice(11, 16) ?? '18:00';
@@ -353,625 +355,896 @@ export default function HomeSolarPage({ showToast }) {
             setWeekData(allWeek);
             setSelectedDayIdx(0);
             setLastFetchTime(new Date());
-            showToast?.(`✅ Live data synced for ${cityName} · ${data.timezone}`);
+            showToast?.(`✅ Live weather data synced for ${cityName}`);
         } catch (e) {
             setError(e.message);
-            showToast?.(`⚠ ${e.message}`);
+            showToast?.(`⚠️ ${e.message}`);
         } finally {
             setLoading(false);
         }
     }, [capacityKw, operatingEffPct, panelTypeId, tariff, showToast]);
 
-    // ── Capacity input helpers ────────────────────────────────────────────────
-    const handleCapacityInput = (val) => {
-        setCapacityInput(val);
-        const num = parseFloat(val);
-        if (!isNaN(num) && num > 0 && num <= 10000) setCapacityKw(num);
-    };
-    const handleCapacitySlider = (val) => {
-        const num = parseFloat(val);
-        setCapacityKw(num);
-        setCapacityInput(String(num));
+    // Initial weather fetch on mount
+    useEffect(() => {
+        fetchAll(selectedLocation.lat, selectedLocation.lon, selectedLocation.name);
+    }, []);
+
+    // Geocoding Search
+    const searchLocations = useCallback(async (query) => {
+        if (!query || query.length < 2) { setSearchResults([]); return; }
+        setIsSearching(true);
+        try {
+            const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=8&language=en&format=json`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error('Search failed');
+            const data = await res.json();
+            setSearchResults(data.results ?? []);
+        } catch {
+            setSearchResults([]);
+        } finally {
+            setIsSearching(false);
+        }
+    }, []);
+
+    const searchDebounce = useRef(null);
+    const handleSearchChange = (val) => {
+        setSearchQuery(val);
+        setShowSearchDrop(true);
+        clearTimeout(searchDebounce.current);
+        searchDebounce.current = setTimeout(() => searchLocations(val), 350);
     };
 
-    // ── Panel type change helper ──────────────────────────────────────────────
+    const handleSelectSearchResult = (result) => {
+        const loc = { name: `${result.name}${result.admin1 ? ', ' + result.admin1 : ''}${result.country ? ', ' + result.country : ''}`, lat: result.latitude, lon: result.longitude };
+        setSelectedLocation(loc);
+        setSearchQuery('');
+        setSearchResults([]);
+        setShowSearchDrop(false);
+        setIsGpsActive(false);
+        fetchAll(loc.lat, loc.lon, loc.name);
+    };
+
+    // GPS Helper
+    const handleGps = () => {
+        if (!navigator.geolocation) { showToast?.('GPS not supported in browser'); return; }
+        setLoading(true);
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                const loc = { name: 'My GPS Location', lat: pos.coords.latitude, lon: pos.coords.longitude };
+                setSelectedLocation(loc);
+                setIsGpsActive(true);
+                fetchAll(loc.lat, loc.lon, loc.name);
+            },
+            () => {
+                setLoading(false);
+                showToast?.('GPS permission denied. Please search your city.');
+            },
+            { timeout: 10000, maximumAge: 60000 }
+        );
+    };
+
     const handlePanelTypeChange = (id) => {
         setPanelTypeId(id);
         const pt = PANEL_TYPES.find(p => p.id === id);
-        if (pt) {
-            setOperatingEffPct(pt.operatingEff);
+        if (pt) setOperatingEffPct(pt.operatingEff);
+        fetchAll(selectedLocation.lat, selectedLocation.lon, selectedLocation.name, capacityKw, pt?.operatingEff ?? 76, id);
+    };
+
+    // KEYBOARD INPUT FOR SOLAR KW (0.5 to 100 kW)
+    const handleCapacityInputText = (val) => {
+        setCapacityInput(val);
+        const num = parseFloat(val);
+        if (!isNaN(num) && num >= 0.1 && num <= 1000) {
+            setCapacityKw(num);
+            fetchAll(selectedLocation.lat, selectedLocation.lon, selectedLocation.name, num);
         }
     };
-    const selectedPanel = PANEL_TYPES.find(p => p.id === panelTypeId) ?? PANEL_TYPES[0];
 
-    // ── Auto-refresh ──────────────────────────────────────────────────────────
-    useEffect(() => {
-        if (autoRefresh && selectedLocation) {
-            autoRefreshTimer.current = setInterval(() => {
-                fetchAll(selectedLocation.lat, selectedLocation.lon, selectedLocation.name);
-            }, 15 * 60 * 1000); // every 15 min
-        } else {
-            clearInterval(autoRefreshTimer.current);
-        }
-        return () => clearInterval(autoRefreshTimer.current);
-    }, [autoRefresh, selectedLocation, fetchAll]);
-
-    // ── Click outside to close search dropdown ────────────────────────────────
-    useEffect(() => {
-        const handler = (e) => {
-            if (searchRef.current && !searchRef.current.contains(e.target)) {
-                setShowSearchDrop(false);
-            }
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, []);
-
-    // ── Derived display data ───────────────────────────────────────────────────
-    const efficiencyLabel = todayResult ? (
-        todayResult.perfRatio >= 75 ? { label: 'Excellent', color: 'var(--emerald)' } :
-            todayResult.perfRatio >= 55 ? { label: 'Good', color: 'var(--cyan)' } :
-                todayResult.perfRatio >= 35 ? { label: 'Moderate', color: 'var(--amber)' } :
-                    { label: 'Low (Cloudy/Rain)', color: 'var(--rose)' }
-    ) : null;
+    const handleCapacitySliderChange = (kw) => {
+        const num = parseFloat(kw);
+        setCapacityKw(num);
+        setCapacityInput(String(num));
+        fetchAll(selectedLocation.lat, selectedLocation.lon, selectedLocation.name, num);
+    };
 
     const selectedDayData = weekData?.[selectedDayIdx];
-    const selectedDayCond = selectedDayData ? wmoToCondition(selectedDayData.weatherCode) : null;
+    const chartHourly = (selectedDayData?.hourly ?? todayResult?.hourly ?? []).filter(p => p.hour >= 5 && p.hour <= 20);
 
-    // Chart data for selected day
-    const chartHourly = (selectedDayData?.hourly ?? todayResult?.hourly ?? [])
-        .filter(p => p.hour >= 5 && p.hour <= 20);
-
-    // 7-day bar chart data
-    const weekChartData = weekData?.map((day, i) => ({
-        label: i === 0 ? 'Today' : day.dateStr.slice(5),
-        kWh: day.totalKwh,
-        savings: day.savings,
-        ghi: day.ghiSum,
-        rain: day.rain,
-    })) ?? [];
+    const handleCalculateClick = () => {
+        setHasCalculated(true);
+        showToast?.('Solar savings calculated successfully!');
+        if (resultsRef.current) {
+            resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-            {/* ── Header ── */}
+        <div className="sc-container">
+            {/* ── TOP NAV BAR TOGGLE FOR CALCULATOR vs LIVE WEATHER SIMULATOR ── */}
             <div style={{
-                background: 'linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(6,182,212,0.08) 100%)',
-                border: '1px solid rgba(245,158,11,0.25)', borderRadius: 16, padding: '20px 24px',
-                display: 'flex', alignItems: 'center', gap: 16,
+                background: '#0d2818',
+                padding: '12px 24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderBottom: '1px solid rgba(255,255,255,0.1)',
+                flexWrap: 'wrap',
+                gap: 12,
             }}>
-                <div style={{
-                    width: 48, height: 48, borderRadius: 14,
-                    background: 'linear-gradient(135deg, #f59e0b, #fbbf24)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    boxShadow: '0 0 20px rgba(245,158,11,0.4)',
-                }}>
-                    <Home size={22} color="#000" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Sun size={20} color="#22c55e" />
+                    <span style={{ color: '#fff', fontWeight: 800, fontSize: 15, letterSpacing: '0.5px' }}>
+                        SURYAURJA SOLAR INTELLIGENCE SUITE
+                    </span>
                 </div>
-                <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.2 }}>
-                        Live Solar Energy Calculator
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.5 }}>
-                        Search <strong style={{ color: 'var(--amber)' }}>any city in the world</strong> · Set your system size · Get live weather-based solar output prediction
-                    </div>
+
+                <div style={{ display: 'flex', background: 'rgba(255,255,255,0.08)', borderRadius: 50, padding: 3, gap: 4 }}>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('calculator')}
+                        style={{
+                            background: activeTab === 'calculator' ? 'var(--sc-grad)' : 'transparent',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 50,
+                            padding: '6px 18px',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                        }}
+                    >
+                        <Zap size={14} /> Instant Solar Savings Calculator
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('live_weather')}
+                        style={{
+                            background: activeTab === 'live_weather' ? 'var(--sc-grad)' : 'transparent',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 50,
+                            padding: '6px 18px',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                        }}
+                    >
+                        <CloudSun size={14} /> Live City Weather & PV Simulator
+                    </button>
                 </div>
-                {lastFetchTime && (
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ color: 'var(--emerald)', fontWeight: 700, fontSize: 11 }}>● LIVE</div>
-                        <div>Updated {lastFetchTime.toLocaleTimeString('en-IN', { hour12: false })}</div>
-                    </div>
-                )}
             </div>
 
-            {/* ── Configuration Panel ── */}
-            <div className="card">
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Sun size={15} color="var(--amber)" /> System Configuration
-                </div>
+            {/* ════════════════════════════════════════════════════════════════
+               TAB 1: SURYAURJA INSTANT SOLAR SAVINGS CALCULATOR LAYOUT
+            ════════════════════════════════════════════════════════════════ */}
+            {activeTab === 'calculator' && (
+                <>
+                    {/* ── HERO BANNER ── */}
+                    <div className="sc-hero">
+                        <div className="sc-hero-orb sc-hero-orb-1" />
+                        <div className="sc-hero-orb sc-hero-orb-2" />
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 16 }}>
+                        <div className="sc-hero-content">
+                            <div className="sc-brand-badge">
+                                <Sun size={15} color="#fff" />
+                                <span>SURYAURJA · SOLAR POWER CALCULATOR</span>
+                            </div>
 
-                    {/* Capacity — slider + number input */}
-                    <div>
-                        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
-                            🔆 System Capacity (kW)
-                        </label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <input type="range" min={0.5} max={500} step={0.5} value={Math.min(500, capacityKw)}
-                                onChange={e => handleCapacitySlider(e.target.value)}
-                                style={{ flex: 1 }} />
-                            <input
-                                type="number" min={0.1} max={100000} step={0.1}
-                                value={capacityInput}
-                                onChange={e => handleCapacityInput(e.target.value)}
-                                style={{
-                                    width: 80, padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(245,158,11,0.4)',
-                                    background: 'rgba(245,158,11,0.08)', color: 'var(--amber)',
-                                    fontWeight: 800, fontSize: 15, textAlign: 'center', outline: 'none',
-                                }}
-                            />
-                        </div>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-                            ≈ {Math.round(capacityKw / 0.33)} panels @ 330W each
+                            <h1 className="sc-hero-title">
+                                Go Solar, Save <span>Big</span>
+                            </h1>
+
+                            <p className="sc-hero-sub">
+                                Calculate your personalised solar generation, financial savings, and PM Surya Ghar subsidy eligibility with SuryaUrja.
+                            </p>
+
+                            <div className="sc-hero-badges">
+                                <div className="sc-hero-badge">
+                                    <Shield size={14} /> 30 Year Warranty
+                                </div>
+                                <div className="sc-hero-badge">
+                                    <Leaf size={14} /> Made in India
+                                </div>
+                                <div className="sc-hero-badge">
+                                    <Percent size={14} /> Government Subsidy
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Panel Type Selector */}
-                    <div>
-                        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
-                            ⚡ Panel Type
-                        </label>
-                        <select
-                            value={panelTypeId}
-                            onChange={e => handlePanelTypeChange(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '6px 10px',
-                                borderRadius: 8,
-                                border: '1px solid rgba(6,182,212,0.4)',
-                                background: 'rgba(6,182,212,0.08)',
-                                color: 'var(--cyan)',
-                                fontWeight: 700,
-                                fontSize: 13,
-                                outline: 'none',
-                                cursor: 'pointer',
-                            }}
-                        >
-                            {PANEL_TYPES.map(pt => (
-                                <option key={pt.id} value={pt.id} style={{ background: '#0f172a', color: '#fff' }}>
-                                    {pt.label} (≈{pt.operatingEff}% PR)
-                                </option>
-                            ))}
-                        </select>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-                            {selectedPanel?.desc} · STC: {selectedPanel?.moduleEff}
-                        </div>
-                    </div>
+                    {/* ── MAIN CALCULATOR CARD ── */}
+                    <div className="sc-main-wrapper">
+                        <div className="sc-calc-card">
+                            {/* STEP 1: Calculation Mode */}
+                            <div className="sc-section">
+                                <div className="sc-section-label">
+                                    <div className="sc-step-num">1</div>
+                                    <span>STEP ONE</span>
+                                </div>
+                                <div className="sc-section-title">
+                                    How would you like to calculate?
+                                </div>
 
-                    {/* Operating Efficiency (PR) */}
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                            <label style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                                ⚙️ Operating Efficiency (%)
-                            </label>
-                            <span style={{ fontSize: 10, color: 'var(--amber)', fontWeight: 600 }}>
-                                Operates @ ~75% (70–80%)
-                            </span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <input
-                                type="range"
-                                min={65}
-                                max={85}
-                                step={0.5}
-                                value={operatingEffPct}
-                                className="slider-cyan"
-                                onChange={e => setOperatingEffPct(parseFloat(e.target.value))}
-                                style={{ flex: 1 }}
-                            />
-                            <span style={{
-                                fontWeight: 800,
-                                fontSize: 16,
-                                minWidth: 50,
-                                color: operatingEffPct >= 78 ? 'var(--emerald)' : operatingEffPct >= 73 ? 'var(--cyan)' : 'var(--amber)',
-                            }}>
-                                {operatingEffPct}%
-                            </span>
-                        </div>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-                            Accounts for inverter, wiring, thermal & soiling · No secondary derate
-                        </div>
-                        {/* Visual efficiency breakdown bar */}
-                        <div style={{ marginTop: 6, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', position: 'relative' }}>
-                            <div style={{
-                                height: '100%', borderRadius: 3, transition: 'width 0.3s ease, background 0.3s ease',
-                                width: `${Math.min(100, Math.max(0, ((operatingEffPct - 65) / 20) * 100))}%`,
-                                background: operatingEffPct >= 78 ? 'linear-gradient(90deg, var(--emerald), #34d399)'
-                                    : operatingEffPct >= 73 ? 'linear-gradient(90deg, var(--cyan), #22d3ee)'
-                                    : 'linear-gradient(90deg, var(--amber), #fbbf24)',
-                            }} />
-                        </div>
-                    </div>
+                                <div className="sc-method-grid">
+                                    <div
+                                        className={`sc-method-card ${calcMethod === 'bill' ? 'active' : ''}`}
+                                        onClick={() => setCalcMethod('bill')}
+                                    >
+                                        <div className="sc-method-icon">₹</div>
+                                        <h3>Monthly Bill</h3>
+                                        <p>Enter your current electricity bill amount</p>
+                                    </div>
 
-                    {/* Tariff */}
-                    <div>
-                        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
-                            💰 Electricity Tariff (₹/kWh)
-                        </label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <input type="range" min={1} max={20} step={0.5} value={tariff} className="slider-cyan"
-                                onChange={e => setTariff(parseFloat(e.target.value))}
-                                style={{ flex: 1 }} />
-                            <span style={{ fontWeight: 800, fontSize: 16, color: 'var(--cyan)', minWidth: 50 }}>
-                                ₹{tariff}
-                            </span>
-                        </div>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-                            India residential: ₹6–₹10 · Commercial: ₹8–₹12
-                        </div>
-                    </div>
-                </div>
+                                    <div
+                                        className={`sc-method-card ${calcMethod === 'units' ? 'active' : ''}`}
+                                        onClick={() => setCalcMethod('units')}
+                                    >
+                                        <div className="sc-method-icon">⚡</div>
+                                        <h3>Monthly Units</h3>
+                                        <p>Enter electricity consumption in kWh</p>
+                                    </div>
 
-                {/* Location Search */}
-                <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Globe size={11} /> Search any city, district, or location worldwide
-                    </div>
-                    <div style={{ position: 'relative' }} ref={searchRef}>
-                        <div style={{ position: 'relative' }}>
-                            <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-                            <input
-                                type="text"
-                                placeholder="Type city name… e.g. Mumbai, London, New York, Dubai"
-                                value={searchQuery}
-                                onChange={e => handleSearchChange(e.target.value)}
-                                onFocus={() => searchQuery.length >= 2 && setShowSearchDrop(true)}
-                                style={{
-                                    width: '100%', boxSizing: 'border-box',
-                                    padding: '10px 40px 10px 36px',
-                                    borderRadius: 10, border: '1px solid rgba(245,158,11,0.3)',
-                                    background: 'rgba(255,255,255,0.04)', color: 'var(--text-primary)',
-                                    fontSize: 13, outline: 'none',
-                                }}
-                            />
-                            {searchQuery && (
-                                <button onClick={() => { setSearchQuery(''); setSearchResults([]); setShowSearchDrop(false); }}
-                                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
-                                    <X size={13} />
-                                </button>
-                            )}
-                        </div>
+                                    <div
+                                        className={`sc-method-card ${calcMethod === 'area' ? 'active' : ''}`}
+                                        onClick={() => setCalcMethod('area')}
+                                    >
+                                        <div className="sc-method-icon">🏠</div>
+                                        <h3>Roof Area</h3>
+                                        <p>Enter your available rooftop area</p>
+                                    </div>
+                                </div>
 
-                        {/* Dropdown */}
-                        {showSearchDrop && (searchResults.length > 0 || isSearching) && (
-                            <div style={{
-                                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
-                                background: 'rgba(8,14,28,0.98)', border: '1px solid rgba(245,158,11,0.25)',
-                                borderRadius: '0 0 10px 10px', maxHeight: 260, overflowY: 'auto',
-                                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                            }}>
-                                {isSearching && (
-                                    <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--text-muted)' }}>
-                                        <RefreshCw size={11} style={{ marginRight: 6, animation: 'spin 1s linear infinite', verticalAlign: 'middle' }} />
-                                        Searching locations…
+                                <div className="sc-input-box">
+                                    {calcMethod === 'bill' && (
+                                        <div>
+                                            <label className="sc-input-label">
+                                                <IndianRupee size={15} color="var(--sc-green)" /> Monthly Electricity Bill
+                                            </label>
+                                            <div className="sc-input-wrap">
+                                                <div className="sc-addon-left">₹</div>
+                                                <input
+                                                    type="number"
+                                                    min="100"
+                                                    step="100"
+                                                    value={billAmount}
+                                                    onChange={(e) => setBillAmount(Number(e.target.value))}
+                                                    placeholder="e.g. 5000"
+                                                />
+                                                <div className="sc-addon-right">/ month</div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                                                {[1500, 3000, 5000, 8000, 12000].map(val => (
+                                                    <button
+                                                        key={val}
+                                                        type="button"
+                                                        onClick={() => setBillAmount(val)}
+                                                        style={{
+                                                            background: billAmount === val ? '#dcfce7' : '#fff',
+                                                            border: `1px solid ${billAmount === val ? '#16a34a' : '#d4ebd9'}`,
+                                                            color: billAmount === val ? '#15803d' : '#537359',
+                                                            padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                                        }}
+                                                    >
+                                                        ₹{val.toLocaleString('en-IN')}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {calcMethod === 'units' && (
+                                        <div>
+                                            <label className="sc-input-label">
+                                                <Zap size={15} color="var(--sc-green)" /> Monthly Electricity Consumption
+                                            </label>
+                                            <div className="sc-input-wrap">
+                                                <div className="sc-addon-left">⚡</div>
+                                                <input
+                                                    type="number"
+                                                    min="20"
+                                                    step="10"
+                                                    value={unitsAmount}
+                                                    onChange={(e) => setUnitsAmount(Number(e.target.value))}
+                                                    placeholder="e.g. 600"
+                                                />
+                                                <div className="sc-addon-right">kWh (Units) / month</div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {calcMethod === 'area' && (
+                                        <div>
+                                            <label className="sc-input-label">
+                                                <Home size={15} color="var(--sc-green)" /> Available Rooftop Area
+                                            </label>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
+                                                <div className="sc-input-wrap">
+                                                    <div className="sc-addon-left">🏠</div>
+                                                    <input
+                                                        type="number"
+                                                        min="50"
+                                                        step="50"
+                                                        value={roofArea}
+                                                        onChange={(e) => setRoofArea(Number(e.target.value))}
+                                                        placeholder="e.g. 600"
+                                                    />
+                                                </div>
+                                                <div style={{ display: 'flex', border: '2px solid #d4ebd9', borderRadius: 14, overflow: 'hidden' }}>
+                                                    <button type="button" onClick={() => setAreaUnit('sqft')} style={{ padding: '0 16px', background: areaUnit === 'sqft' ? 'var(--sc-grad)' : '#fff', color: areaUnit === 'sqft' ? '#fff' : '#537359', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Sq. Ft</button>
+                                                    <button type="button" onClick={() => setAreaUnit('sqm')} style={{ padding: '0 16px', background: areaUnit === 'sqm' ? 'var(--sc-grad)' : '#fff', color: areaUnit === 'sqm' ? '#fff' : '#537359', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Sq. M</button>
+                                                </div>
+                                            </div>
+                                            <div style={{ marginTop: 14 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: 'var(--sc-text)', marginBottom: 6 }}>
+                                                    <span>Roof Usage for Solar:</span>
+                                                    <span style={{ color: 'var(--sc-green)' }}>{roofUsagePct}% Usable</span>
+                                                </div>
+                                                <input type="range" min="30" max="100" step="5" value={roofUsagePct} onChange={(e) => setRoofUsagePct(Number(e.target.value))} className="sc-slider" />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* STEP 2: Location & Customer */}
+                            <div className="sc-section">
+                                <div className="sc-section-label">
+                                    <div className="sc-step-num">2</div>
+                                    <span>STEP TWO</span>
+                                </div>
+                                <div className="sc-section-title">
+                                    Your Location & Customer Type
+                                </div>
+
+                                <div className="sc-form-grid">
+                                    <div className="sc-form-group">
+                                        <label><MapPin size={15} color="var(--sc-green)" /> State / Union Territory</label>
+                                        <div className="sc-input-wrap">
+                                            <select value={selectedStateId} onChange={(e) => handleStateChange(e.target.value)}>
+                                                {Object.entries(STATE_DATA).map(([id, s]) => (
+                                                    <option key={id} value={id}>{s.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="sc-form-group">
+                                        <label><Award size={15} color="var(--sc-green)" /> Customer Category</label>
+                                        <div className="sc-input-wrap">
+                                            <select value={customerType} onChange={(e) => {
+                                                const ct = e.target.value;
+                                                setCustomerType(ct);
+                                                if (ct !== '2') setSubsidyType('0');
+                                                else setSubsidyType('1');
+                                            }}>
+                                                <option value="2">Residential (Eligible for Subsidy)</option>
+                                                <option value="1">Commercial</option>
+                                                <option value="3">Industrial</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {customerType === '2' && (
+                                    <div className="sc-subsidy-box">
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                                            <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--sc-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <Percent size={15} color="var(--sc-green)" /> Subsidy Applicable?
+                                            </label>
+                                            <div className="sc-input-wrap" style={{ width: 220 }}>
+                                                <select value={subsidyType} onChange={(e) => setSubsidyType(e.target.value)}>
+                                                    <option value="1">With Subsidy (DCR)</option>
+                                                    <option value="0">No Subsidy (Non-DCR)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="sc-subsidy-tip">
+                                            <Info size={14} color="var(--sc-green)" style={{ flexShrink: 0, marginTop: 2 }} />
+                                            <span>
+                                                <strong>PM Surya Ghar Muft Bijli Yojana</strong> government subsidy applies to Made in India (DCR) solar panels for residential customers only. (Up to ₹78,000 for 3 kW system).
+                                            </span>
+                                        </div>
                                     </div>
                                 )}
-                                {searchResults.map((r, i) => (
-                                    <SearchResult key={i} result={r} onSelect={handleSelectSearchResult} />
-                                ))}
                             </div>
-                        )}
-                    </div>
 
-                    {/* Selected location chip */}
-                    {selectedLocation && (
-                        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
-                            <MapPin size={11} color="var(--amber)" />
-                            <span><strong style={{ color: 'var(--amber)' }}>{selectedLocation.name}</strong></span>
-                            <span style={{ color: 'var(--text-muted)' }}>· {selectedLocation.lat.toFixed(4)}°N, {selectedLocation.lon.toFixed(4)}°E</span>
-                            {isGpsActive && <span style={{ color: 'var(--emerald)', fontWeight: 600 }}>· GPS</span>}
-                        </div>
-                    )}
-                </div>
-
-                {/* Action buttons */}
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button className="btn btn-amber" disabled={loading}
-                        onClick={() => fetchAll(selectedLocation.lat, selectedLocation.lon, selectedLocation.name)}
-                        style={{ flex: 1, minWidth: 200 }}>
-                        <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-                        {loading ? 'Fetching Live Weather…' : `⚡ Get Live Forecast · ${selectedLocation?.name?.split(',')[0]}`}
-                    </button>
-                    <button className="btn btn-outline" onClick={handleGps} disabled={loading}
-                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Navigation size={13} /> Use GPS
-                    </button>
-
-                    {/* Auto-refresh toggle */}
-                    <button
-                        onClick={() => setAutoRefresh(v => !v)}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: 6,
-                            padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                            background: autoRefresh ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)',
-                            color: autoRefresh ? 'var(--emerald)' : 'var(--text-muted)',
-                            fontSize: 12, fontWeight: 600, transition: 'all 0.2s',
-                        }}>
-                        <div style={{
-                            width: 8, height: 8, borderRadius: '50%',
-                            background: autoRefresh ? 'var(--emerald)' : 'rgba(255,255,255,0.2)',
-                            animation: autoRefresh ? 'pulse 2s infinite' : 'none',
-                        }} />
-                        {autoRefresh ? 'Auto-refresh ON (15m)' : 'Auto-refresh OFF'}
-                    </button>
-                </div>
-
-                {error && (
-                    <div style={{ marginTop: 12, fontSize: 11, color: 'var(--rose)', padding: '8px 12px', background: 'rgba(239,68,68,0.08)', borderRadius: 8 }}>
-                        ⚠ {error}
-                    </div>
-                )}
-            </div>
-
-            {/* ── Results ── */}
-            {todayResult && weekData && (
-                <>
-                    {/* Today Weather Summary */}
-                    <div className="card" style={{ borderColor: 'rgba(245,158,11,0.2)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                            <div>
-                                <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
-                                    {todayResult.condition.icon} Today in {todayResult.cityName}
+                            {/* STEP 3: Tariff */}
+                            <div className="sc-section">
+                                <div className="sc-section-label">
+                                    <div className="sc-step-num">3</div>
+                                    <span>STEP THREE</span>
                                 </div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                                    {todayResult.condition.label} · Fetched {todayResult.fetchedAt} · {todayResult.timezone}
+                                <div className="sc-section-title">
+                                    Your Electricity Unit Cost
                                 </div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: 30, fontWeight: 900, color: 'var(--amber)' }}>
-                                    {todayResult.maxTemp}°<span style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 500 }}>C</span>
-                                </div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Low {todayResult.minTemp}°C</div>
-                            </div>
-                        </div>
 
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            <WeatherBadge icon={ThermometerSun} label="Avg Temp" value={`${todayResult.avgTemp}°C`} color="var(--amber)" />
-                            <WeatherBadge icon={Cloud} label="Cloud Cover" value={`${todayResult.avgCloud}%`} color="var(--text-secondary)" />
-                            <WeatherBadge icon={Wind} label="Wind" value={`${todayResult.hourly[12]?.wind ?? '--'}m/s`} color="var(--emerald)" />
-                            <WeatherBadge icon={Droplets} label="Humidity" value={`${todayResult.hourly[12]?.hum ?? '--'}%`} color="var(--cyan)" />
-                            <WeatherBadge icon={Sun} label="Sunrise" value={todayResult.sunrise} color="var(--amber)" />
-                            <WeatherBadge icon={Sun} label="Sunset" value={todayResult.sunset} color="var(--rose)" />
-                            <WeatherBadge icon={Zap} label="GHI Total" value={`${todayResult.ghiSum}`} color="var(--purple)" />
-                            {todayResult.rain > 0 && (
-                                <WeatherBadge icon={Droplets} label="Rain" value={`${todayResult.rain}mm`} color="var(--cyan)" />
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Key Stats */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-                        <StatCard icon={Zap} iconColor="var(--amber)" label="Today's Output"
-                            value={todayResult.totalKwh} unit="kWh"
-                            sub={`From ${capacityKw}kW · ${selectedPanel.name} @ ${operatingEffPct}% operating eff.`}
-                            gradient="linear-gradient(135deg, rgba(245,158,11,0.12), rgba(245,158,11,0.03))" />
-                        <StatCard icon={Sun} iconColor="var(--cyan)" label="Peak Power"
-                            value={todayResult.peakKw} unit="kW"
-                            sub={`At ${todayResult.peakHour}`}
-                            gradient="linear-gradient(135deg, rgba(6,182,212,0.12), rgba(6,182,212,0.03))" />
-                        <StatCard icon={IndianRupee} iconColor="var(--emerald)" label="Savings Today"
-                            value={`₹${todayResult.savings}`} unit=""
-                            sub={`@ ₹${tariff}/kWh`}
-                            gradient="linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.03))" />
-                        <StatCard icon={Leaf} iconColor="var(--purple)" label="CO₂ Avoided"
-                            value={todayResult.co2Saved} unit="kg"
-                            sub="vs. coal grid (0.82 kg/kWh)"
-                            gradient="linear-gradient(135deg, rgba(139,92,246,0.12), rgba(139,92,246,0.03))" />
-                        <StatCard icon={TrendingUp} iconColor={efficiencyLabel?.color} label="Performance Ratio"
-                            value={`${todayResult.perfRatio}%`} unit=""
-                            sub={efficiencyLabel?.label}
-                            gradient={`linear-gradient(135deg, ${efficiencyLabel?.color}1a, ${efficiencyLabel?.color}08)`} />
-                        <StatCard icon={Calendar} iconColor="var(--rose)" label="Monthly Est."
-                            value={`₹${Math.round(todayResult.savings * 30)}`} unit=""
-                            sub={`≈ ${Math.round(todayResult.totalKwh * 30)} kWh/month`}
-                            gradient="linear-gradient(135deg, rgba(239,68,68,0.12), rgba(239,68,68,0.03))" />
-                    </div>
-
-                    {/* 7-Day Week View */}
-                    <div className="card">
-                        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <Calendar size={14} color="var(--cyan)" /> 7-Day Solar Forecast
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 }}>
-                            Click a day to see its hourly breakdown ↓
-                        </div>
-                        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
-                            {weekData.map((day, i) => (
-                                <DayCard
-                                    key={i} day={day} isToday={i === 0}
-                                    capacityKw={capacityKw} tariff={tariff}
-                                    isSelected={selectedDayIdx === i}
-                                    onClick={() => setSelectedDayIdx(i)}
-                                />
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Selected Day Hourly Chart */}
-                    <div className="card">
-                        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-                            ⚡ Hourly Output — {selectedDayIdx === 0 ? 'Today' : selectedDayData?.dayLabel}
-                            {selectedDayCond && <span style={{ marginLeft: 8, fontSize: 16 }}>{selectedDayCond.icon}</span>}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 }}>
-                            Live Open-Meteo GHI · {capacityKw}kW system · {selectedPanel.name} ({operatingEffPct}% operating efficiency) · temperature derating applied
-                        </div>
-
-                        {/* Day summary pills */}
-                        {selectedDayData && (
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-                                {[
-                                    { label: 'Total Output', val: `${selectedDayData.totalKwh} kWh`, color: 'var(--amber)' },
-                                    { label: 'Peak', val: `${selectedDayData.peakKw} kW @ ${selectedDayData.peakHour}`, color: 'var(--cyan)' },
-                                    { label: 'Savings', val: `₹${selectedDayData.savings}`, color: 'var(--emerald)' },
-                                    { label: 'CO₂ Saved', val: `${selectedDayData.co2Saved} kg`, color: 'var(--purple)' },
-                                    { label: 'Rain', val: `${selectedDayData.rain}mm`, color: 'var(--cyan)' },
-                                ].map(pill => (
-                                    <div key={pill.label} style={{
-                                        padding: '4px 10px', borderRadius: 20,
-                                        background: 'rgba(255,255,255,0.05)',
-                                        border: '1px solid rgba(255,255,255,0.08)',
-                                        fontSize: 11,
-                                    }}>
-                                        <span style={{ color: 'var(--text-muted)' }}>{pill.label}: </span>
-                                        <strong style={{ color: pill.color }}>{pill.val}</strong>
+                                <div className="sc-tariff-box">
+                                    <div className="sc-tariff-header">
+                                        <div>
+                                            <div className="sc-tariff-display">₹{Number(tariff).toFixed(2)}</div>
+                                            <div className="sc-tariff-unit">per kWh (unit)</div>
+                                        </div>
+                                        <div className="sc-input-wrap" style={{ width: 140 }}>
+                                            <div className="sc-addon-left">₹</div>
+                                            <input type="number" min="1" max="30" step="0.25" value={tariff} onChange={(e) => setTariff(Math.min(30, Math.max(1, Number(e.target.value))))} style={{ textAlign: 'center', fontWeight: 800 }} />
+                                        </div>
                                     </div>
-                                ))}
+
+                                    <input type="range" min="1" max="30" step="0.25" value={tariff} onChange={(e) => setTariff(Number(e.target.value))} className="sc-slider" />
+                                    <div className="sc-slider-ticks"><span>₹1</span><span>₹8</span><span>₹15</span><span>₹22</span><span>₹30</span></div>
+                                    <div className="sc-tariff-badge">
+                                        <Info size={13} color="var(--sc-green)" />
+                                        <span>Auto-filled with <strong>{STATE_DATA[selectedStateId]?.name}</strong>'s average tariff of <strong>₹{STATE_DATA[selectedStateId]?.tariff}/unit</strong>. Adjust if your bill rate differs.</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ACTION BUTTON */}
+                            <div className="sc-action-section">
+                                <button type="button" className="sc-btn-calculate" onClick={handleCalculateClick}>
+                                    <Zap size={18} />
+                                    <span>Calculate My Solar Savings</span>
+                                    <ArrowRight size={18} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* RESULTS REPORT */}
+                        {hasCalculated && (
+                            <div className="sc-results-card" ref={resultsRef}>
+                                <div className="sc-results-header">
+                                    <div className="sc-state-pill">
+                                        <Sun size={14} /> Solar Potential for {calculatorResults.stateName}
+                                    </div>
+                                    <h2 className="sc-results-title">
+                                        Your Personalised Solar Savings Report
+                                    </h2>
+                                    <p className="sc-results-sub">
+                                        Based on {calculatorResults.sunHrs} peak sun hours/day in {calculatorResults.stateName} @ ₹{Number(tariff).toFixed(2)}/kWh
+                                    </p>
+                                </div>
+
+                                <div className="sc-plant-hero">
+                                    <div className="sc-plant-hero-left">
+                                        <div className="sc-plant-label">Recommended System Capacity</div>
+                                        <div className="sc-plant-value">
+                                            {calculatorResults.plantKW} <span className="sc-plant-unit">kWp</span>
+                                        </div>
+                                        <div className="sc-plant-sub">
+                                            Generates ~<strong>{calculatorResults.dailyGen} units</strong> of clean power daily
+                                        </div>
+                                    </div>
+                                    <div className="sc-plant-stats-col">
+                                        <div className="sc-plant-stat-chip">
+                                            <div className="sc-plant-stat-lbl">Rooftop Area Required</div>
+                                            <div className="sc-plant-stat-val">~{calculatorResults.roofAreaNeeded} sq. ft</div>
+                                        </div>
+                                        <div className="sc-plant-stat-chip">
+                                            <div className="sc-plant-stat-lbl">Solar Panels Count</div>
+                                            <div className="sc-plant-stat-val">≈ {Math.round(calculatorResults.plantKW / 0.54)} Panels (540W)</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="sc-metric-grid">
+                                    <div className="sc-metric-card">
+                                        <div className="sc-metric-icon"><Zap size={20} /></div>
+                                        <div className="sc-metric-lbl">Daily Generation</div>
+                                        <div className="sc-metric-val">{calculatorResults.dailyGen} Units</div>
+                                        <div className="sc-metric-sub">kWh clean solar power</div>
+                                    </div>
+                                    <div className="sc-metric-card">
+                                        <div className="sc-metric-icon"><IndianRupee size={20} /></div>
+                                        <div className="sc-metric-lbl">Monthly Savings</div>
+                                        <div className="sc-metric-val" style={{ color: 'var(--sc-green)' }}>₹{formatRupees(calculatorResults.monthlySavings)}</div>
+                                        <div className="sc-metric-sub">saved on electricity bills</div>
+                                    </div>
+                                    <div className="sc-metric-card">
+                                        <div className="sc-metric-icon"><Calendar size={20} /></div>
+                                        <div className="sc-metric-lbl">Annual Savings</div>
+                                        <div className="sc-metric-val" style={{ color: 'var(--sc-green)' }}>₹{formatRupees(calculatorResults.annualSavings)}</div>
+                                        <div className="sc-metric-sub">estimated year 1 bill offset</div>
+                                    </div>
+                                    <div className="sc-metric-card">
+                                        <div className="sc-metric-icon"><TrendingUp size={20} /></div>
+                                        <div className="sc-metric-lbl">30-Year Savings</div>
+                                        <div className="sc-metric-val" style={{ color: 'var(--sc-dark)' }}>₹{formatRupees(calculatorResults.lifetimeSavings)}</div>
+                                        <div className="sc-metric-sub">lifetime solar wealth creation</div>
+                                    </div>
+                                    <div className="sc-metric-card">
+                                        <div className="sc-metric-icon"><CheckCircle2 size={20} /></div>
+                                        <div className="sc-metric-lbl">Payback Period</div>
+                                        <div className="sc-metric-val">{calculatorResults.paybackYears} Yrs</div>
+                                        <div className="sc-metric-sub">simple capital recovery</div>
+                                    </div>
+                                    <div className="sc-metric-card">
+                                        <div className="sc-metric-icon"><Percent size={20} /></div>
+                                        <div className="sc-metric-lbl">Annual ROI</div>
+                                        <div className="sc-metric-val" style={{ color: 'var(--sc-green)' }}>{calculatorResults.roiPercent}%</div>
+                                        <div className="sc-metric-sub">annual tax-free return</div>
+                                    </div>
+                                </div>
+
+                                <div className="sc-cost-card">
+                                    <div className="sc-cost-title"><IndianRupee size={18} color="var(--sc-green)" /> Project Cost & PM Surya Ghar Subsidy</div>
+                                    <div className="sc-cost-row">
+                                        <span>Estimated System Turnkey Cost</span>
+                                        <span>₹{formatRupees(calculatorResults.totalProjectCost)}</span>
+                                    </div>
+                                    {calculatorResults.isEligibleSubsidy && calculatorResults.govtSubsidy > 0 && (
+                                        <div className="sc-cost-row subsidy-highlight">
+                                            <span>PM Surya Ghar Central Subsidy <span className="sc-subsidy-badge">Govt Benefit</span></span>
+                                            <span>− ₹{formatRupees(calculatorResults.govtSubsidy)}</span>
+                                        </div>
+                                    )}
+                                    <div className="sc-cost-row total-row">
+                                        <span>Your Net Investment</span>
+                                        <span>₹{formatRupees(calculatorResults.netInvestment)}</span>
+                                    </div>
+                                </div>
                             </div>
                         )}
-
-                        <ResponsiveContainer width="100%" height={230}>
-                            <AreaChart data={chartHourly} margin={{ left: -10, right: 10, top: 5 }}>
-                                <defs>
-                                    <linearGradient id="kwGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="var(--amber)" stopOpacity={0.4} />
-                                        <stop offset="95%" stopColor="var(--amber)" stopOpacity={0.01} />
-                                    </linearGradient>
-                                    <linearGradient id="ghiGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="var(--cyan)" stopOpacity={0.2} />
-                                        <stop offset="95%" stopColor="var(--cyan)" stopOpacity={0.01} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                                <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#64748B' }} axisLine={false} />
-                                <YAxis yAxisId="kw" tick={{ fontSize: 9, fill: '#64748B' }} axisLine={false}
-                                    label={{ value: 'kW', angle: -90, position: 'insideLeft', style: { fontSize: 9, fill: '#64748B' } }} />
-                                <YAxis yAxisId="ghi" orientation="right" tick={{ fontSize: 9, fill: '#64748B' }} axisLine={false}
-                                    label={{ value: 'W/m²', angle: 90, position: 'insideRight', style: { fontSize: 9, fill: '#64748B' } }} />
-                                <Tooltip content={<CustomTooltip />} />
-                                <ReferenceLine yAxisId="kw" y={capacityKw} stroke="rgba(245,158,11,0.2)" strokeDasharray="6 3"
-                                    label={{ value: `${capacityKw}kW rated`, position: 'right', style: { fontSize: 9, fill: '#f59e0b' } }} />
-                                <Area yAxisId="kw" dataKey="kw" name="Output (kW)" type="monotone"
-                                    stroke="var(--amber)" strokeWidth={2.5} fill="url(#kwGrad)" dot={false} />
-                                <Area yAxisId="ghi" dataKey="ghi" name="GHI (W/m²)" type="monotone"
-                                    stroke="var(--cyan)" strokeWidth={1.5} fill="url(#ghiGrad)" dot={false} />
-                                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 8 }} />
-                            </AreaChart>
-                        </ResponsiveContainer>
-                    </div>
-
-                    {/* 7-Day kWh Bar Chart */}
-                    <div className="card">
-                        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-                            📅 7-Day Energy & Savings Overview
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 }}>
-                            Predicted daily solar output (kWh) and estimated savings (₹) based on live weather forecast
-                        </div>
-                        <ResponsiveContainer width="100%" height={200}>
-                            <BarChart data={weekChartData} margin={{ left: -10, right: 10 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                                <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#64748B' }} axisLine={false} />
-                                <YAxis yAxisId="kwh" tick={{ fontSize: 9, fill: '#64748B' }} axisLine={false} />
-                                <YAxis yAxisId="sav" orientation="right" tick={{ fontSize: 9, fill: '#64748B' }} axisLine={false} />
-                                <Tooltip content={<CustomTooltip />} />
-                                <Bar yAxisId="kwh" dataKey="kWh" name="Output (kWh)" fill="var(--amber)" radius={[4, 4, 0, 0]} opacity={0.85} />
-                                <Bar yAxisId="sav" dataKey="savings" name="Savings (₹)" fill="var(--emerald)" radius={[4, 4, 0, 0]} opacity={0.6} />
-                                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 6 }} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-
-                    {/* Hourly Breakdown Table — collapsible */}
-                    <div className="card">
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showDetails ? 14 : 0 }}>
-                            <div style={{ fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                📋 Hourly Breakdown
-                                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400 }}>
-                                    · {selectedDayIdx === 0 ? 'Today' : selectedDayData?.dayLabel}
-                                </span>
-                            </div>
-                            <button onClick={() => setShowDetails(v => !v)}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
-                                {showDetails ? <><ChevronUp size={13} /> Hide</> : <><ChevronDown size={13} /> Show Table</>}
-                            </button>
-                        </div>
-
-                        {showDetails && (
-                            <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                                    <thead>
-                                        <tr style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.4px' }}>
-                                            {['Time', 'GHI (W/m²)', 'Temp (°C)', 'Cloud (%)', 'Wind (m/s)', 'Output (kW)', 'Savings (₹)'].map(h => (
-                                                <th key={h} style={{ textAlign: 'left', padding: '6px 12px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>{h}</th>
-                                            ))}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {(selectedDayData?.hourly ?? todayResult.hourly).filter(p => p.hour >= 5 && p.hour <= 20).map(p => (
-                                            <tr key={p.hour}
-                                                style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.15s' }}
-                                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                                                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                                                <td style={{ padding: '7px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>{p.label}</td>
-                                                <td style={{ padding: '7px 12px', color: 'var(--amber)' }}>{p.ghi}</td>
-                                                <td style={{ padding: '7px 12px', color: 'var(--rose)' }}>{p.temp}</td>
-                                                <td style={{ padding: '7px 12px', color: 'var(--text-secondary)' }}>{p.cloud}%</td>
-                                                <td style={{ padding: '7px 12px', color: 'var(--emerald)' }}>{p.wind}</td>
-                                                <td style={{ padding: '7px 12px', fontWeight: 700, color: p.kw > 0 ? 'var(--cyan)' : 'var(--text-muted)' }}>{p.kw}</td>
-                                                <td style={{ padding: '7px 12px', color: 'var(--emerald)' }}>₹{Math.round(p.kw * tariff)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                    <tfoot>
-                                        <tr style={{ background: 'rgba(245,158,11,0.07)', fontWeight: 700 }}>
-                                            <td colSpan={5} style={{ padding: '8px 12px', color: 'var(--text-secondary)', fontSize: 11 }}>Total (Day)</td>
-                                            <td style={{ padding: '8px 12px', color: 'var(--amber)' }}>{selectedDayData?.totalKwh ?? todayResult.totalKwh} kWh</td>
-                                            <td style={{ padding: '8px 12px', color: 'var(--emerald)' }}>₹{selectedDayData?.savings ?? todayResult.savings}</td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Smart Tips */}
-                    <div className="card card-amber">
-                        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <Info size={14} color="var(--amber)" /> Smart Tips for {todayResult.cityName.split(',')[0]} Today
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                            {todayResult.peakKw < capacityKw * 0.4 && (
-                                <div>⚠️ <strong style={{ color: 'var(--amber)' }}>Low Output Day</strong> — Heavy cloud cover ({todayResult.avgCloud}%) is reducing irradiance significantly. Avoid running high-power appliances. Consider grid power during 18:00–22:00 peak tariff window.</div>
-                            )}
-                            {todayResult.peakKw >= capacityKw * 0.7 && (
-                                <div>✅ <strong style={{ color: 'var(--emerald)' }}>Great Solar Day!</strong> — Good irradiance expected. Run washing machine, dishwasher, water heater around <strong>{todayResult.peakHour}</strong> (±2 hrs) for maximum self-consumption savings.</div>
-                            )}
-                            <div>📊 <strong>Monthly Estimate:</strong> ≈ {Math.round(todayResult.totalKwh * 30)} kWh/month → <strong style={{ color: 'var(--emerald)' }}>₹{Math.round(todayResult.savings * 30)}/month</strong> savings at ₹{tariff}/kWh tariff.</div>
-                            <div>🌱 Annual impact: your {capacityKw}kW system avoids <strong style={{ color: 'var(--purple)' }}>{Math.round(todayResult.co2Saved * 365)} kg CO₂/year</strong> — equivalent to planting ~{Math.round(todayResult.co2Saved * 365 / 21)} trees.</div>
-                            <div>🔆 <strong>Payback Estimate:</strong> At ₹{Math.round(todayResult.savings * 30)}/month savings, a {capacityKw}kW system (≈₹{Math.round(capacityKw * 55000).toLocaleString('en-IN')}) pays back in ~<strong style={{ color: 'var(--cyan)' }}>{Math.round((capacityKw * 55000) / (todayResult.savings * 12))} years</strong>.</div>
-                            {todayResult.rain > 0 && (
-                                <div>🌧️ <strong style={{ color: 'var(--cyan)' }}>Rain Bonus:</strong> ≈{todayResult.rain}mm rain expected today — naturally cleans your panels and may boost tomorrow's output by 2–5%!</div>
-                            )}
-                        </div>
                     </div>
                 </>
             )}
 
-            {/* ── Empty State ── */}
-            {!todayResult && !loading && (
-                <div style={{
-                    textAlign: 'center', padding: '60px 24px',
-                    background: 'rgba(255,255,255,0.02)', borderRadius: 16,
-                    border: '1px dashed rgba(255,255,255,0.08)',
-                }}>
-                    <div style={{ fontSize: 52, marginBottom: 14 }}>🌍☀️</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                        How much solar will your system produce today?
+            {/* ════════════════════════════════════════════════════════════════
+               TAB 2: PREVIOUS LIVE CITY SEARCH, GPS, NEXT 7-DAY OUTPUT & PV SIMULATOR
+            ════════════════════════════════════════════════════════════════ */}
+            {activeTab === 'live_weather' && (
+                <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 24 }}>
+                    {/* Header bar with Live badge & City Search */}
+                    <div style={{
+                        background: 'linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(6,182,212,0.08) 100%)',
+                        border: '1px solid rgba(245,158,11,0.25)', borderRadius: 16, padding: '20px 24px',
+                        display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+                    }}>
+                        <div style={{
+                            width: 48, height: 48, borderRadius: 14,
+                            background: 'linear-gradient(135deg, #f59e0b, #fbbf24)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                        }}>
+                            <Home size={22} color="#000" />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--sc-text)' }}>
+                                Live City Solar & Weather Forecasting Simulator
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--sc-muted)' }}>
+                                Search <strong>any city globally</strong> · Set custom capacity & electricity tariff rate · Get live 7-day power output & financial savings forecast
+                            </div>
+                        </div>
+                        {lastFetchTime && (
+                            <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 700 }}>
+                                ● LIVE SYNCHRONIZED ({lastFetchTime.toLocaleTimeString('en-IN', { hour12: false })})
+                            </div>
+                        )}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 420, margin: '0 auto 24px', lineHeight: 1.7 }}>
-                        Search <strong style={{ color: 'var(--amber)' }}>any city or location worldwide</strong>, set your system size (in kW), and get <strong>real-time weather-based power predictions</strong> for today and the next 7 days — completely free, no sign-up needed.
+
+                    {/* Location Search Bar & GPS */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 12, position: 'relative' }} ref={searchRef}>
+                        <div style={{ position: 'relative' }}>
+                            <div className="sc-input-wrap">
+                                <div className="sc-addon-left"><Search size={16} /></div>
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => handleSearchChange(e.target.value)}
+                                    placeholder="Search any city globally (e.g. Mumbai, Delhi, London, Tokyo)..."
+                                />
+                            </div>
+                            {showSearchDrop && searchResults.length > 0 && (
+                                <div style={{
+                                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                                    background: '#fff', border: '1px solid #d4ebd9', borderRadius: 12,
+                                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)', marginTop: 4, overflow: 'hidden',
+                                }}>
+                                    {searchResults.map(res => (
+                                        <div
+                                            key={`${res.id}-${res.latitude}`}
+                                            onClick={() => handleSelectSearchResult(res)}
+                                            style={{ padding: '10px 14px', borderBottom: '1px solid #f0f4f1', cursor: 'pointer' }}
+                                        >
+                                            <div style={{ fontWeight: 700, fontSize: 13 }}>{res.name}</div>
+                                            <div style={{ fontSize: 10, color: '#537359' }}>{[res.admin1, res.country].filter(Boolean).join(', ')}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={handleGps}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                background: isGpsActive ? '#dcfce7' : '#fff',
+                                border: `1px solid ${isGpsActive ? '#16a34a' : '#d4ebd9'}`,
+                                color: isGpsActive ? '#15803d' : '#537359',
+                                borderRadius: 14, padding: '0 16px', fontWeight: 700, cursor: 'pointer',
+                            }}
+                        >
+                            <Navigation size={15} /> GPS
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => fetchAll(selectedLocation.lat, selectedLocation.lon, selectedLocation.name)}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                background: 'var(--sc-grad)', color: '#fff',
+                                border: 'none', borderRadius: 14, padding: '0 20px', fontWeight: 700, cursor: 'pointer',
+                            }}
+                        >
+                            <RefreshCw size={15} className={loading ? 'spin' : ''} /> Sync
+                        </button>
                     </div>
-                    <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-                        <button className="btn btn-amber"
-                            onClick={() => fetchAll(selectedLocation.lat, selectedLocation.lon, selectedLocation.name)}>
-                            <Sun size={14} /> Fetch Live Forecast for Delhi →
-                        </button>
-                        <button className="btn btn-outline" onClick={handleGps}>
-                            <Navigation size={13} /> Use My Location
-                        </button>
+
+                    {/* Solar PV System Configurator with CAPACITY (kW), PANEL TECH, and ELECTRICITY RATE TARIFF (₹/kWh) */}
+                    <div style={{ background: '#fff', border: '1px solid #d4ebd9', borderRadius: 20, padding: 24 }}>
+                        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Settings size={18} color="var(--sc-green)" /> Custom PV Plant & Electricity Tariff Configurator
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 24 }}>
+                            {/* 1. Solar kW Keyboard Input + Range Slider */}
+                            <div>
+                                <label style={{ fontSize: 12, fontWeight: 700, color: '#537359', display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                                    <span>🔆 Solar System Capacity (kWp)</span>
+                                    <span style={{ color: 'var(--sc-green)' }}>Type 0.5 to 100 kW via keyboard</span>
+                                </label>
+                                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                    <input
+                                        type="range" min={0.5} max={100} step={0.5}
+                                        value={Math.min(100, Math.max(0.5, capacityKw))}
+                                        onChange={(e) => handleCapacitySliderChange(e.target.value)}
+                                        className="sc-slider" style={{ flex: 1 }}
+                                    />
+                                    <div className="sc-input-wrap" style={{ width: 110 }}>
+                                        <input
+                                            type="number"
+                                            min={0.5}
+                                            max={100}
+                                            step={0.5}
+                                            value={capacityInput}
+                                            onChange={(e) => handleCapacityInputText(e.target.value)}
+                                            style={{ textAlign: 'center', fontWeight: 900, color: 'var(--sc-dark)', fontSize: 16 }}
+                                            placeholder="e.g. 5"
+                                        />
+                                        <div className="sc-addon-right" style={{ padding: '0 8px', fontSize: 12 }}>kW</div>
+                                    </div>
+                                </div>
+
+                                {/* Quick Capacity Presets */}
+                                <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                                    {[1, 3, 5, 10, 25, 50, 100].map(kw => (
+                                        <button
+                                            key={kw}
+                                            type="button"
+                                            onClick={() => handleCapacitySliderChange(kw)}
+                                            style={{
+                                                background: capacityKw === kw ? '#dcfce7' : '#f8fbf9',
+                                                border: `1px solid ${capacityKw === kw ? '#16a34a' : '#d4ebd9'}`,
+                                                color: capacityKw === kw ? '#15803d' : '#537359',
+                                                padding: '3px 10px',
+                                                borderRadius: 8,
+                                                fontSize: 11,
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            {kw} kW
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* 2. ELECTRIC RATE / TARIFF SELECTOR (₹/kWh) */}
+                            <div>
+                                <label style={{ fontSize: 12, fontWeight: 700, color: '#537359', display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                                    <span>⚡ Electricity Rate / Tariff (₹/kWh)</span>
+                                    <span style={{ color: 'var(--sc-green)' }}>Adjust to calculate financial savings</span>
+                                </label>
+                                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                    <input
+                                        type="range" min={1} max={30} step={0.25}
+                                        value={tariff}
+                                        onChange={(e) => setTariff(Number(e.target.value))}
+                                        className="sc-slider" style={{ flex: 1 }}
+                                    />
+                                    <div className="sc-input-wrap" style={{ width: 120 }}>
+                                        <div className="sc-addon-left" style={{ padding: '0 8px', fontSize: 14 }}>₹</div>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={30}
+                                            step={0.25}
+                                            value={tariff}
+                                            onChange={(e) => setTariff(Math.min(30, Math.max(1, Number(e.target.value))))}
+                                            style={{ textAlign: 'center', fontWeight: 900, color: 'var(--sc-dark)', fontSize: 16 }}
+                                        />
+                                        <div className="sc-addon-right" style={{ padding: '0 6px', fontSize: 10 }}>/unit</div>
+                                    </div>
+                                </div>
+
+                                {/* Quick Tariff Presets */}
+                                <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                                    {[4.5, 6.0, 8.0, 10.0, 12.0].map(tr => (
+                                        <button
+                                            key={tr}
+                                            type="button"
+                                            onClick={() => setTariff(tr)}
+                                            style={{
+                                                background: tariff === tr ? '#dcfce7' : '#f8fbf9',
+                                                border: `1px solid ${tariff === tr ? '#16a34a' : '#d4ebd9'}`,
+                                                color: tariff === tr ? '#15803d' : '#537359',
+                                                padding: '3px 10px',
+                                                borderRadius: 8,
+                                                fontSize: 11,
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            ₹{tr.toFixed(2)}/u
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* 3. Panel Tech Selection */}
+                            <div>
+                                <label style={{ fontSize: 12, fontWeight: 700, color: '#537359', display: 'block', marginBottom: 6 }}>
+                                    🛡️ Panel Technology
+                                </label>
+                                <select
+                                    value={panelTypeId}
+                                    onChange={(e) => handlePanelTypeChange(e.target.value)}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: 12, border: '1px solid #d4ebd9', fontWeight: 700, outline: 'none' }}
+                                >
+                                    {PANEL_TYPES.map(p => (
+                                        <option key={p.id} value={p.id}>{p.label}</option>
+                                    ))}
+                                </select>
+                                <div style={{ fontSize: 11, color: '#537359', marginTop: 6 }}>
+                                    {PANEL_TYPES.find(p => p.id === panelTypeId)?.desc}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* TODAY & FINANCIAL SAVINGS CARDS (TODAY SAVINGS, MONTHLY SAVINGS, ANNUAL SAVINGS) */}
+                    {todayResult && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+                            {/* Today Output */}
+                            <div style={{ background: 'linear-gradient(135deg, #108e48, #16a34a)', borderRadius: 20, padding: 20, color: '#fff' }}>
+                                <div style={{ fontSize: 11, textTransform: 'uppercase', opacity: 0.85, fontWeight: 700 }}>TODAY'S GENERATION</div>
+                                <div style={{ fontSize: 30, fontWeight: 900, marginTop: 4 }}>
+                                    {todayResult.totalKwh} <span style={{ fontSize: 14 }}>kWh</span>
+                                </div>
+                                <div style={{ fontSize: 11, opacity: 0.9, marginTop: 4 }}>
+                                    {todayResult.condition.icon} {todayResult.condition.label} · Peak: {todayResult.peakKw} kW
+                                </div>
+                            </div>
+
+                            {/* Today Savings */}
+                            <div style={{ background: '#fff', border: '1px solid #d4ebd9', borderRadius: 20, padding: 20 }}>
+                                <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#537359', fontWeight: 700 }}>TODAY'S SAVINGS</div>
+                                <div style={{ fontSize: 28, fontWeight: 900, color: '#16a34a', marginTop: 4 }}>
+                                    ₹{formatRupees(todayResult.totalKwh * tariff)}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#537359', marginTop: 4 }}>
+                                    @ ₹{Number(tariff).toFixed(2)} / unit electricity rate
+                                </div>
+                            </div>
+
+                            {/* Monthly Savings */}
+                            <div style={{ background: '#fff', border: '1px solid #d4ebd9', borderRadius: 20, padding: 20 }}>
+                                <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#537359', fontWeight: 700 }}>ESTIMATED MONTHLY SAVINGS</div>
+                                <div style={{ fontSize: 28, fontWeight: 900, color: '#16a34a', marginTop: 4 }}>
+                                    ₹{formatRupees(todayResult.totalKwh * 30 * tariff)}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#537359', marginTop: 4 }}>
+                                    ~{Math.round(todayResult.totalKwh * 30)} kWh monthly bill offset
+                                </div>
+                            </div>
+
+                            {/* Annual Savings */}
+                            <div style={{ background: '#fff', border: '1px solid #d4ebd9', borderRadius: 20, padding: 20 }}>
+                                <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#537359', fontWeight: 700 }}>ANNUAL SAVINGS (YEAR 1)</div>
+                                <div style={{ fontSize: 28, fontWeight: 900, color: '#0f5132', marginTop: 4 }}>
+                                    ₹{formatRupees(todayResult.totalKwh * 365 * 0.98 * tariff)}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#537359', marginTop: 4 }}>
+                                    ~{Math.round(todayResult.totalKwh * 365 * 0.98)} kWh total yearly generation
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* NEXT 7 DAYS FORECAST CARDS */}
+                    {weekData && weekData.length > 0 && (
+                        <div style={{ background: '#fff', border: '1px solid #d4ebd9', borderRadius: 20, padding: 24 }}>
+                            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <Calendar size={18} color="var(--sc-green)" /> Next 7 Days Predicted Output & Weather
+                                </div>
+                                <span style={{ fontSize: 12, color: '#537359', fontWeight: 600 }}>Click any day to view detailed hourly curve</span>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 12 }}>
+                                {weekData.map((day, idx) => {
+                                    const cond = wmoToCondition(day.weatherCode);
+                                    const isSelected = selectedDayIdx === idx;
+                                    const daySavings = Math.round(day.totalKwh * tariff);
+                                    return (
+                                        <div
+                                            key={day.dateStr}
+                                            onClick={() => setSelectedDayIdx(idx)}
+                                            style={{
+                                                background: isSelected ? 'linear-gradient(135deg, #108e48, #16a34a)' : '#f8fbf9',
+                                                color: isSelected ? '#fff' : '#132a18',
+                                                border: `2px solid ${isSelected ? '#16a34a' : '#d4ebd9'}`,
+                                                borderRadius: 16,
+                                                padding: '14px 10px',
+                                                cursor: 'pointer',
+                                                textAlign: 'center',
+                                                transition: 'all 0.2s ease',
+                                                boxShadow: isSelected ? '0 6px 18px rgba(16, 142, 72, 0.3)' : 'none',
+                                            }}
+                                        >
+                                            <div style={{ fontSize: 11, fontWeight: 700, opacity: isSelected ? 0.9 : 0.7 }}>
+                                                {idx === 0 ? 'Today' : day.dayLabel}
+                                            </div>
+                                            <div style={{ fontSize: 26, margin: '6px 0' }}>{cond.icon}</div>
+                                            <div style={{ fontSize: 16, fontWeight: 900 }}>
+                                                {day.totalKwh} <span style={{ fontSize: 10 }}>kWh</span>
+                                            </div>
+                                            <div style={{ fontSize: 11, fontWeight: 700, color: isSelected ? '#fff' : '#16a34a', marginTop: 2 }}>
+                                                ₹{formatRupees(daySavings)}
+                                            </div>
+                                            <div style={{ fontSize: 10, opacity: 0.75, marginTop: 4 }}>
+                                                {day.maxTemp}° / {day.minTemp}°
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Hourly Output Curve for Selected Day */}
+                    <div style={{ background: '#fff', border: '1px solid #d4ebd9', borderRadius: 20, padding: 24 }}>
+                        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>📈 Hourly Generation Profile for {selectedDayIdx === 0 ? 'Today' : selectedDayData?.dayLabel} ({capacityKw} kWp System @ ₹{Number(tariff).toFixed(2)}/kWh)</span>
+                            <span style={{ fontSize: 12, color: 'var(--sc-green)', fontWeight: 700 }}>
+                                {selectedDayData ? `${selectedDayData.totalKwh} kWh Total` : ''}
+                            </span>
+                        </div>
+                        <div style={{ height: 290, width: '100%' }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={chartHourly}>
+                                    <defs>
+                                        <linearGradient id="liveSolarGrad" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#16a34a" stopOpacity={0.4} />
+                                            <stop offset="95%" stopColor="#16a34a" stopOpacity={0.0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2ece4" />
+                                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                                    <YAxis tick={{ fontSize: 11 }} unit=" kW" />
+                                    <Tooltip content={<CustomTooltip />} />
+                                    <Area type="monotone" dataKey="kw" stroke="#16a34a" strokeWidth={2.5} fill="url(#liveSolarGrad)" name="Generation (kW)" />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
                     </div>
                 </div>
             )}
-
-            <style>{`
-                @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-                @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-                input[type=number]::-webkit-outer-spin-button,
-                input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-                input[type=number] { -moz-appearance: textfield; }
-            `}</style>
         </div>
     );
 }

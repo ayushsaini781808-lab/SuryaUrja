@@ -1,29 +1,67 @@
-import { Download } from 'lucide-react';
+import { useState } from 'react';
+import { Download, Zap, Settings, RefreshCcw } from 'lucide-react';
 import ForecastChart from '../components/ForecastChart';
 import { WEATHER_CONDITIONS } from '../data/solarData';
 
 export default function MultiDayPage({
     daySummaries, selectedDayIndex, onSelectDay,
     activeHourPoint, onSelectHour,
-    selectedPlant, onExportCsv,
+    selectedPlant, onUpdateCapacity, onExportCsv,
 }) {
     const selectedDay = daySummaries[selectedDayIndex] || daySummaries[0];
     const capacity = selectedPlant?.capacityKw || 200;
+    const [kwInput, setKwInput] = useState(String(capacity));
+
+    const handleKwChange = (val) => {
+        setKwInput(val);
+        const num = parseFloat(val);
+        if (!isNaN(num) && num > 0 && num <= 50000) {
+            onUpdateCapacity?.(num);
+        }
+    };
 
     const daylightPts = (selectedDay?.hourlyPoints || []).filter(p => p.hour >= 5 && p.hour <= 19);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-            {/* Header */}
-            <div className="flex items-center justify-between">
+            {/* Header with Title and Real Solar kW Keyboard Input */}
+            <div className="flex items-center justify-between flex-wrap gap-12">
                 <div>
                     <div className="section-title">7-Day Multi-Day Solar Forecast</div>
                     <div className="section-sub">Spatiotemporal CNN-LSTM hourly projections with ENN refinement</div>
                 </div>
-                <button className="btn btn-amber" onClick={onExportCsv}>
-                    <Download size={14} /> Export CSV
-                </button>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    {/* Real kW Capacity Keyboard Input */}
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        background: '#f8fbf9', border: '1px solid rgba(22,163,74,0.3)',
+                        borderRadius: 12, padding: '6px 14px',
+                    }}>
+                        <Zap size={15} color="#16a34a" />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>Real Capacity:</span>
+                        <input
+                            type="number"
+                            min="0.1"
+                            max="50000"
+                            step="0.5"
+                            value={kwInput}
+                            onChange={(e) => handleKwChange(e.target.value)}
+                            style={{
+                                width: 75, border: '1px solid rgba(22,163,74,0.4)',
+                                borderRadius: 8, padding: '4px 8px', background: '#fff',
+                                fontWeight: 900, fontSize: 14, color: '#0f5132',
+                                outline: 'none', textAlign: 'center',
+                            }}
+                        />
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#15803d' }}>kW</span>
+                    </div>
+
+                    <button className="btn btn-amber" onClick={onExportCsv}>
+                        <Download size={14} /> Export CSV
+                    </button>
+                </div>
             </div>
 
             {/* Day Carousel */}
@@ -55,10 +93,32 @@ export default function MultiDayPage({
 
             {/* Selected Day Chart */}
             <div className="card">
-                <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedDay?.dayName} Hourly Profile</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                        Peak: {selectedDay?.peakPowerKw} kW • Total: {selectedDay?.totalEnergyKwh} kWh • {WEATHER_CONDITIONS[selectedDay?.predominantWeather]?.label}
+                <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedDay?.dayName} Hourly Profile</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                            Peak: {selectedDay?.peakPowerKw} kW • Total: {selectedDay?.totalEnergyKwh} kWh • {WEATHER_CONDITIONS[selectedDay?.predominantWeather]?.label}
+                        </div>
+                    </div>
+
+                    {/* Quick Capacity Pills */}
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>Quick kW:</span>
+                        {[50, 100, 200, 500, 1000].map(kw => (
+                            <button
+                                key={kw}
+                                type="button"
+                                onClick={() => handleKwChange(String(kw))}
+                                style={{
+                                    background: capacity === kw ? '#dcfce7' : 'var(--bg-surface)',
+                                    border: `1px solid ${capacity === kw ? '#16a34a' : 'var(--border)'}`,
+                                    color: capacity === kw ? '#15803d' : 'var(--text-secondary)',
+                                    padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                }}
+                            >
+                                {kw} kW
+                            </button>
+                        ))}
                     </div>
                 </div>
                 <ForecastChart
