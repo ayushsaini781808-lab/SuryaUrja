@@ -23,8 +23,8 @@ function generateHourlyPoints(capacityKw, cloudDelta = 0, tempDelta = 0, include
         const ghi = Math.round(rawGhi);
         const dni = Math.round(rawGhi * 0.82);
         const dhi = Math.round(rawGhi * 0.18);
-        const clearSky = Math.round((rawGhi / 900) * capacityKw * 0.2);
-        const baseKw = Math.round(((rawGhi / 1000) * capacityKw * 0.19 * (1 - Math.max(0, (25 + tempDelta - 25) * 0.004))) * 10) / 10;
+        const clearSky = Math.round((rawGhi / 1000) * capacityKw * 0.80 * 10) / 10;
+        const baseKw = Math.round(((rawGhi / 1000) * capacityKw * 0.75 * (1 - Math.max(0, (25 + tempDelta - 25) * 0.0035))) * 10) / 10;
         const lower = Math.round((baseKw * 0.94) * 10) / 10;
         const upper = Math.round((baseKw * 1.06) * 10) / 10;
         const cloudPct = Math.min(100, Math.max(0, (h >= 5 && h <= 19 ? 15 + cloudDelta : 0)));

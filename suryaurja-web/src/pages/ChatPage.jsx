@@ -4,6 +4,7 @@ import { callGemini, getGeminiKey, loadChatHistory, saveChatHistory } from '../a
 import { CHATBOT_ROLES } from '../data/solarData';
 
 const GEMINI_MODELS = [
+    { id: 'gemini-3.8',       name: 'Gemini 3.8',       desc: 'Latest · Fast & powerful' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', desc: 'Latest · Fast & powerful' },
     { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', desc: 'Efficient multimodal' },
     { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', desc: 'Balanced speed/quality' },

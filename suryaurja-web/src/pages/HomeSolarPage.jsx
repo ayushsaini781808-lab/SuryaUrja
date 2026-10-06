@@ -23,11 +23,51 @@ function wmoToCondition(code) {
     return { label: 'Unknown', icon: '❓', severity: 2 };
 }
 
+// ── Panel Types & Characteristics ─────────────────────────────────────────────
+const PANEL_TYPES = [
+    {
+        id: 'mono_perc',
+        name: 'Mono PERC',
+        label: 'Mono PERC (Monocrystalline)',
+        operatingEff: 76,
+        tempCoeff: 0.0035,
+        moduleEff: '20–22%',
+        desc: 'Industry standard. High efficiency & low thermal degradation.',
+    },
+    {
+        id: 'poly',
+        name: 'Polycrystalline',
+        label: 'Polycrystalline (Poly-Si)',
+        operatingEff: 72,
+        tempCoeff: 0.0040,
+        moduleEff: '15–18%',
+        desc: 'Traditional blue panels. Lower yield & higher heat sensitivity.',
+    },
+    {
+        id: 'bifacial',
+        name: 'Bifacial',
+        label: 'Bifacial (Dual-Glass)',
+        operatingEff: 80,
+        tempCoeff: 0.0030,
+        moduleEff: '21–23%',
+        desc: 'Captures rear albedo reflection (+5–10% yield boost).',
+    },
+    {
+        id: 'topcon',
+        name: 'TOPCon / HJT',
+        label: 'TOPCon / N-Type HJT',
+        operatingEff: 78,
+        tempCoeff: 0.0030,
+        moduleEff: '22–24%',
+        desc: 'Next-gen N-type technology with superior hot-climate generation.',
+    },
+];
+
 // ── PV power from GHI + temp ─────────────────────────────────────────────────
-function calcHourlyKw(ghi, temp, capacityKw) {
+function calcHourlyKw(ghi, temp, capacityKw, operatingEffPct = 75, tempCoeff = 0.0035) {
     if (ghi <= 0) return 0;
-    const eta = 0.20 * (1 - Math.max(0, (temp - 25) * 0.004));
-    return Math.round((ghi / 1000) * capacityKw * eta * 10) / 10;
+    const derate = (operatingEffPct / 100) * (1 - Math.max(0, (temp - 25) * tempCoeff));
+    return Math.round((ghi / 1000) * capacityKw * derate * 10) / 10;
 }
 
 // ── Custom Tooltip ────────────────────────────────────────────────────────────
@@ -150,7 +190,8 @@ export default function HomeSolarPage({ showToast }) {
     const [capacityKw, setCapacityKw] = useState(2);
     const [capacityInput, setCapacityInput] = useState('2');
     const [tariff, setTariff] = useState(8);
-    const [panelEffPct, setPanelEffPct] = useState(20); // panel efficiency %
+    const [panelTypeId, setPanelTypeId] = useState('mono_perc');
+    const [operatingEffPct, setOperatingEffPct] = useState(75); // Operates at ~75% (70–80% typical range)
 
     // Data state
     const [loading, setLoading] = useState(false);
@@ -222,7 +263,7 @@ export default function HomeSolarPage({ showToast }) {
     };
 
     // ── Fetch all data (today + 7-day) ────────────────────────────────────────
-    const fetchAll = useCallback(async (lat, lon, cityName, kw = capacityKw, eff = panelEffPct) => {
+    const fetchAll = useCallback(async (lat, lon, cityName, kw = capacityKw, opEff = operatingEffPct, pTypeId = panelTypeId) => {
         setLoading(true); setError(null);
         try {
             const url = `https://api.open-meteo.com/v1/forecast`
@@ -238,7 +279,9 @@ export default function HomeSolarPage({ showToast }) {
 
             const h = data.hourly;
             const d = data.daily;
-            const effFactor = eff / 100;
+            const opEffFactor = opEff / 100; // Operates at ~75% (70-80% typical range)
+            const activePanel = PANEL_TYPES.find(p => p.id === pTypeId) ?? PANEL_TYPES[0];
+            const tempCoeff = activePanel.tempCoeff ?? 0.0035;
 
             // ── Build 7 days ──────────────────────────────────────────────────
             const allWeek = d.time.map((dateStr, di) => {
@@ -250,8 +293,8 @@ export default function HomeSolarPage({ showToast }) {
                     const cloud = Math.round(h.cloudcover?.[i] ?? 20);
                     const wind = Math.round((h.windspeed_10m?.[i] ?? 3) * 10) / 10;
                     const hum = Math.round(h.relativehumidity_2m?.[i] ?? 55);
-                    const eta = effFactor * (1 - Math.max(0, (temp - 25) * 0.004));
-                    const kwOut = ghi > 0 ? Math.round((ghi / 1000) * kw * eta * 10) / 10 : 0;
+                    const tempDerate = 1 - Math.max(0, (temp - 25) * tempCoeff);
+                    const kwOut = ghi > 0 ? Math.round((ghi / 1000) * kw * opEffFactor * tempDerate * 10) / 10 : 0;
                     return { hour: hi, label: `${String(hi).padStart(2, '0')}:00`, ghi, temp, cloud, wind, hum, kw: kwOut };
                 });
 
@@ -284,8 +327,9 @@ export default function HomeSolarPage({ showToast }) {
             const condition = wmoToCondition(today.weatherCode);
             const avgTemp = Math.round(today.hourly.reduce((s, p) => s + p.temp, 0) / 24 * 10) / 10;
             const avgCloud = Math.round(today.hourly.reduce((s, p) => s + p.cloud, 0) / 24);
-            const idealHrs = today.hourly.filter(p => p.ghi > 0).length || 8;
-            const perfRatio = idealHrs > 0 ? Math.round((today.totalKwh / (kw * idealHrs)) * 1000) / 10 : 0;
+            const totalGhiDay = today.hourly.reduce((s, p) => s + p.ghi, 0);
+            const theoreticalKwh = (totalGhiDay / 1000) * kw;
+            const perfRatio = theoreticalKwh > 0 ? Math.round((today.totalKwh / theoreticalKwh) * 1000) / 10 : Math.round(opEff * 10) / 10;
 
             setTodayResult({
                 cityName, lat, lon,
@@ -316,7 +360,7 @@ export default function HomeSolarPage({ showToast }) {
         } finally {
             setLoading(false);
         }
-    }, [capacityKw, panelEffPct, tariff, showToast]);
+    }, [capacityKw, operatingEffPct, panelTypeId, tariff, showToast]);
 
     // ── Capacity input helpers ────────────────────────────────────────────────
     const handleCapacityInput = (val) => {
@@ -329,6 +373,16 @@ export default function HomeSolarPage({ showToast }) {
         setCapacityKw(num);
         setCapacityInput(String(num));
     };
+
+    // ── Panel type change helper ──────────────────────────────────────────────
+    const handlePanelTypeChange = (id) => {
+        setPanelTypeId(id);
+        const pt = PANEL_TYPES.find(p => p.id === id);
+        if (pt) {
+            setOperatingEffPct(pt.operatingEff);
+        }
+    };
+    const selectedPanel = PANEL_TYPES.find(p => p.id === panelTypeId) ?? PANEL_TYPES[0];
 
     // ── Auto-refresh ──────────────────────────────────────────────────────────
     useEffect(() => {
@@ -443,21 +497,80 @@ export default function HomeSolarPage({ showToast }) {
                         </div>
                     </div>
 
-                    {/* Panel efficiency */}
+                    {/* Panel Type Selector */}
                     <div>
                         <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
-                            ⚙️ Panel Efficiency (%)
+                            ⚡ Panel Type
                         </label>
+                        <select
+                            value={panelTypeId}
+                            onChange={e => handlePanelTypeChange(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '6px 10px',
+                                borderRadius: 8,
+                                border: '1px solid rgba(6,182,212,0.4)',
+                                background: 'rgba(6,182,212,0.08)',
+                                color: 'var(--cyan)',
+                                fontWeight: 700,
+                                fontSize: 13,
+                                outline: 'none',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            {PANEL_TYPES.map(pt => (
+                                <option key={pt.id} value={pt.id} style={{ background: '#0f172a', color: '#fff' }}>
+                                    {pt.label} (≈{pt.operatingEff}% PR)
+                                </option>
+                            ))}
+                        </select>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                            {selectedPanel?.desc} · STC: {selectedPanel?.moduleEff}
+                        </div>
+                    </div>
+
+                    {/* Operating Efficiency (PR) */}
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <label style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                ⚙️ Operating Efficiency (%)
+                            </label>
+                            <span style={{ fontSize: 10, color: 'var(--amber)', fontWeight: 600 }}>
+                                Operates @ ~75% (70–80%)
+                            </span>
+                        </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <input type="range" min={10} max={25} step={0.5} value={panelEffPct} className="slider-cyan"
-                                onChange={e => setPanelEffPct(parseFloat(e.target.value))}
-                                style={{ flex: 1 }} />
-                            <span style={{ fontWeight: 800, fontSize: 16, color: 'var(--cyan)', minWidth: 50 }}>
-                                {panelEffPct}%
+                            <input
+                                type="range"
+                                min={65}
+                                max={85}
+                                step={0.5}
+                                value={operatingEffPct}
+                                className="slider-cyan"
+                                onChange={e => setOperatingEffPct(parseFloat(e.target.value))}
+                                style={{ flex: 1 }}
+                            />
+                            <span style={{
+                                fontWeight: 800,
+                                fontSize: 16,
+                                minWidth: 50,
+                                color: operatingEffPct >= 78 ? 'var(--emerald)' : operatingEffPct >= 73 ? 'var(--cyan)' : 'var(--amber)',
+                            }}>
+                                {operatingEffPct}%
                             </span>
                         </div>
                         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-                            Mono PERC: 20–22% · Poly: 15–18% · Bifacial: 21–23%
+                            Accounts for inverter, wiring, thermal & soiling · No secondary derate
+                        </div>
+                        {/* Visual efficiency breakdown bar */}
+                        <div style={{ marginTop: 6, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', position: 'relative' }}>
+                            <div style={{
+                                height: '100%', borderRadius: 3, transition: 'width 0.3s ease, background 0.3s ease',
+                                width: `${Math.min(100, Math.max(0, ((operatingEffPct - 65) / 20) * 100))}%`,
+                                background: operatingEffPct >= 78 ? 'linear-gradient(90deg, var(--emerald), #34d399)'
+                                    : operatingEffPct >= 73 ? 'linear-gradient(90deg, var(--cyan), #22d3ee)'
+                                    : 'linear-gradient(90deg, var(--amber), #fbbf24)',
+                            }} />
                         </div>
                     </div>
 
@@ -621,7 +734,7 @@ export default function HomeSolarPage({ showToast }) {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
                         <StatCard icon={Zap} iconColor="var(--amber)" label="Today's Output"
                             value={todayResult.totalKwh} unit="kWh"
-                            sub={`From ${capacityKw}kW @ ${panelEffPct}% eff.`}
+                            sub={`From ${capacityKw}kW · ${selectedPanel.name} @ ${operatingEffPct}% operating eff.`}
                             gradient="linear-gradient(135deg, rgba(245,158,11,0.12), rgba(245,158,11,0.03))" />
                         <StatCard icon={Sun} iconColor="var(--cyan)" label="Peak Power"
                             value={todayResult.peakKw} unit="kW"
@@ -672,7 +785,7 @@ export default function HomeSolarPage({ showToast }) {
                             {selectedDayCond && <span style={{ marginLeft: 8, fontSize: 16 }}>{selectedDayCond.icon}</span>}
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 }}>
-                            Live Open-Meteo GHI · {capacityKw}kW system · {panelEffPct}% panel efficiency · temperature derating applied
+                            Live Open-Meteo GHI · {capacityKw}kW system · {selectedPanel.name} ({operatingEffPct}% operating efficiency) · temperature derating applied
                         </div>
 
                         {/* Day summary pills */}

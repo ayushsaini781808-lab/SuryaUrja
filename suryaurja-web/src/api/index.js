@@ -35,12 +35,12 @@ export function mapOpenMeteoToHourlyPoints(data, capacityKw) {
         const wind = Math.round((h.windspeed_10m?.[i] ?? 3.5) * 10) / 10;
         const humidity = Math.round(h.relativehumidity_2m?.[i] ?? 50);
 
-        // Simple irradiance → PV power conversion (ηₛ ≈ 19%, derating for temp)
-        const efficiency = 0.19 * (1 - Math.max(0, (temp - 25) * 0.004));
+        // Irradiance → PV power conversion (operating efficiency / PR ≈ 75%, derating for temp)
+        const efficiency = 0.75 * (1 - Math.max(0, (temp - 25) * 0.0035));
         const baseKw = Math.round((ghi / 1000) * capacityKw * efficiency * 10) / 10;
         const lower = Math.round(baseKw * 0.94 * 10) / 10;
         const upper = Math.round(baseKw * 1.06 * 10) / 10;
-        const clearSky = Math.round((400 / 1000) * capacityKw * efficiency); // clear-sky proxy
+        const clearSky = Math.round((ghi > 0 ? Math.max(ghi, 500) : 500) / 1000 * capacityKw * 0.80 * 10) / 10; // clear-sky proxy
 
         let condition = 'CLEAR_SUNNY';
         if (cloud > 75) condition = 'OVERCAST';
@@ -84,17 +84,18 @@ export function getApiKey() {
 }
 
 const GEMINI_MODELS = {
+    'gemini-3.8': 'gemini-3.8',
     'gemini-2.5-flash': 'gemini-2.5-flash',
     'gemini-2.0-flash': 'gemini-2.0-flash',
     'gemini-1.5-flash': 'gemini-1.5-flash',
     'gemini-1.5-pro':   'gemini-1.5-pro',
 };
 
-export async function callGemini({ prompt, roleSystem, apiKey, modelId = 'gemini-2.5-flash', history = [] }) {
+export async function callGemini({ prompt, roleSystem, apiKey, modelId = 'gemini-3.8', history = [] }) {
     const key = apiKey || getGeminiKey();
     if (!key) throw new Error('No Gemini API key configured. Add your key in the Settings tab.');
 
-    const modelName = GEMINI_MODELS[modelId] ?? GEMINI_MODELS['gemini-2.0-flash'];
+    const modelName = GEMINI_MODELS[modelId] ?? GEMINI_MODELS['gemini-1.5-flash'];
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`;
 
     // Build contents array
