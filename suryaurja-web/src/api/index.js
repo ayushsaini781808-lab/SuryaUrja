@@ -84,16 +84,16 @@ export function getApiKey() {
 }
 
 const GEMINI_MODELS = {
-    'gemini-1.5-flash': 'gemini-1.5-flash',
-    'gemini-1.5-pro':   'gemini-1.5-pro',
-    'gemini-2.0-flash': 'gemini-2.0-flash',
+    'gemini-3.8-flash': 'gemini-3.8-flash',
+    'gemini-3.5-flash': 'gemini-3.5-flash',
+    'gemini-flash-latest': 'gemini-flash-latest',
 };
 
-export async function callGemini({ prompt, roleSystem, apiKey, modelId = 'gemini-1.5-flash', history = [] }) {
+export async function callGemini({ prompt, roleSystem, apiKey, modelId = 'gemini-3.8-flash', history = [] }) {
     const key = apiKey || getGeminiKey();
     if (!key) throw new Error('No Gemini API key configured. Add your key in the Settings tab.');
 
-    const modelName = GEMINI_MODELS[modelId] ?? 'gemini-1.5-flash';
+    const modelName = GEMINI_MODELS[modelId] ?? 'gemini-3.8-flash';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`;
 
     // Build contents array

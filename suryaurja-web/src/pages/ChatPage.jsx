@@ -4,9 +4,9 @@ import { callGemini, getGeminiKey, loadChatHistory, saveChatHistory } from '../a
 import { CHATBOT_ROLES } from '../data/solarData';
 
 const GEMINI_MODELS = [
-    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', desc: 'Fast, official & stable (Recommended)' },
-    { id: 'gemini-1.5-pro',   name: 'Gemini 1.5 Pro',   desc: 'Highest reasoning accuracy' },
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', desc: 'Next-gen multimodal' },
+    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', desc: 'Fast, powerful & verified' },
+    { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', desc: 'Ultra-fast fallback' },
+    { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', desc: 'Auto-updating latest' },
 ];
 
 function buildSystemPrompt(role, plant, hourPoint) {
