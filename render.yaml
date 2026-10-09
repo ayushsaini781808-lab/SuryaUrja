@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: suryaurja-web
+    runtime: static
+    rootDir: suryaurja-web
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_GEMINI_API_KEY
+        sync: false
